@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <title>ProductionDashboard — Panel administracyjny PLC</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2.5rem; border-bottom: 1px solid #334155; padding-bottom: .25rem; }
+    section { margin-bottom: 2rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; font-size: .85rem; }
+    th, td { border: 1px solid #334155; padding: .35rem .5rem; text-align: left; }
+    th { background: #1e293b; }
+    form.inline { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; margin-bottom: 1rem; }
+    form.inline label { display: flex; flex-direction: column; font-size: .75rem; gap: .15rem; }
+    input, select { padding: .3rem; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px; }
+    button { padding: .35rem .75rem; border: none; border-radius: 4px; background: #2563eb; color: white; cursor: pointer; }
+    button.danger { background: #dc2626; }
+    .status-ok { color: #22c55e; }
+    .status-bad { color: #ef4444; }
+    .hint { color: #94a3b8; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <h1>ProductionDashboard — Panel administracyjny PLC</h1>
+  <p class="hint">
+    Konfiguracja sterowników S7, tagów, progów alarmowych i alarmów bitowych.
+    Zmiany są stosowane natychmiast (hot-reload) — bez restartu procesu.
+    Zobacz też <a href="/status" style="color:#93c5fd">/status</a> (diagnostyka na żywo).
+  </p>
+
+  <section>
+    <h2>Sterowniki PLC</h2>
+    <form class="inline" id="plc-form">
+      <label>Nazwa <input name="name" required /></label>
+      <label>Obszar
+        <select name="area_id" id="plc-area-select" required></select>
+      </label>
+      <label>IP <input name="ip" required /></label>
+      <label>Rack <input name="rack" type="number" value="0" /></label>
+      <label>Slot <input name="slot" type="number" value="1" /></label>
+      <label>Typ <input name="plc_type" placeholder="S7-1200" required /></label>
+      <button type="submit">Dodaj PLC</button>
+    </form>
+    <table id="plc-table">
+      <thead><tr><th>ID</th><th>Nazwa</th><th>Obszar</th><th>IP</th><th>Rack</th><th>Slot</th><th>Typ</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Tagi</h2>
+    <form class="inline" id="tag-form">
+      <label>PLC <select name="plc_id" id="tag-plc-select" required></select></label>
+      <label>Nazwa tagu <input name="name" required /></label>
+      <label>DB <input name="db" type="number" value="1" required /></label>
+      <label>Offset <input name="offset" type="number" value="0" required /></label>
+      <label>Bit <input name="bit" type="number" value="0" min="0" max="7" /></label>
+      <label>Typ
+        <select name="type" required>
+          <option>REAL</option><option>INT</option><option>DINT</option>
+          <option>BOOL</option><option>WORD</option><option>BYTE</option><option>STRING</option>
+        </select>
+      </label>
+      <label>Metric ID <input name="metric_id" id="tag-metric-select" list="metric-options" required /></label>
+      <datalist id="metric-options"></datalist>
+      <label>Etykieta <input name="label" required /></label>
+      <label>Jednostka <input name="unit" /></label>
+      <label>Miejsca dziesiętne <input name="decimals" type="number" value="0" /></label>
+      <button type="submit">Dodaj tag</button>
+    </form>
+    <table id="tag-table">
+      <thead><tr><th>ID</th><th>PLC</th><th>Nazwa</th><th>DB.Offset.Bit</th><th>Typ</th><th>Metric ID</th><th>Etykieta</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Progi alarmowe (ThresholdRule)</h2>
+    <p class="hint">Jeden tag = najwyżej jeden próg. Tag z progiem nie może mieć alarmów bitowych.</p>
+    <form class="inline" id="threshold-form">
+      <label>Tag <select name="tag_id" id="threshold-tag-select" required></select></label>
+      <label>Min <input name="min" type="number" step="any" /></label>
+      <label>Max <input name="max" type="number" step="any" /></label>
+      <button type="submit">Dodaj próg</button>
+    </form>
+    <table id="threshold-table">
+      <thead><tr><th>ID</th><th>Tag</th><th>Min</th><th>Max</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Alarmy bitowe (BitAlarmRule)</h2>
+    <p class="hint">Tag może mieć wiele alarmów bitowych (różne bity słowa awarii), ale nie może mieć jednocześnie progu.</p>
+    <form class="inline" id="bitalarm-form">
+      <label>Tag <select name="tag_id" id="bitalarm-tag-select" required></select></label>
+      <label>Bit <input name="bit_index" type="number" min="0" max="31" value="0" required /></label>
+      <label>Opis <input name="description" required /></label>
+      <button type="submit">Dodaj alarm bitowy</button>
+    </form>
+    <table id="bitalarm-table">
+      <thead><tr><th>ID</th><th>Tag</th><th>Bit</th><th>Opis</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script>
+    const API = "";
+
+    async function fetchJson(url, options) {
+      const resp = await fetch(url, options);
+      if (!resp.ok) {
+        const body = await resp.text();
+        alert(`Błąd ${resp.status}: ${body}`);
+        throw new Error(body);
+      }
+      if (resp.status === 204) return null;
+      return resp.json();
+    }
+
+    function formToJson(form) {
+      const data = Object.fromEntries(new FormData(form).entries());
+      const out = {};
+      for (const [k, v] of Object.entries(data)) {
+        if (v === "") { out[k] = null; continue; }
+        if (["rack", "slot", "db", "offset", "bit", "decimals", "plc_id", "tag_id", "bit_index"].includes(k)) {
+          out[k] = parseInt(v, 10);
+        } else if (["min", "max"].includes(k)) {
+          out[k] = parseFloat(v);
+        } else {
+          out[k] = v;
+        }
+      }
+      return out;
+    }
+
+    let AREAS = [];
+    let PLCS = [];
+    let TAGS = [];
+
+    async function loadAreas() {
+      AREAS = await fetchJson("/api/areas");
+      const select = document.getElementById("plc-area-select");
+      select.innerHTML = AREAS.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+      const metricOptions = document.getElementById("metric-options");
+      metricOptions.innerHTML = AREAS.flatMap(a => a.metrics).map(m => `<option value="${m.id}">`).join("");
+    }
+
+    async function loadPlcs() {
+      PLCS = await fetchJson("/api/plcs");
+      const tbody = document.querySelector("#plc-table tbody");
+      tbody.innerHTML = PLCS.map(p => `
+        <tr>
+          <td>${p.id}</td><td>${p.name}</td><td>${p.area_id}</td><td>${p.ip}</td>
+          <td>${p.rack}</td><td>${p.slot}</td><td>${p.plc_type}</td>
+          <td><button class="danger" onclick="deletePlc(${p.id})">Usuń</button></td>
+        </tr>`).join("");
+      const select = document.getElementById("tag-plc-select");
+      select.innerHTML = PLCS.map(p => `<option value="${p.id}">${p.name} (${p.area_id})</option>`).join("");
+    }
+
+    async function loadTags() {
+      TAGS = await fetchJson("/api/tags");
+      const tbody = document.querySelector("#tag-table tbody");
+      tbody.innerHTML = TAGS.map(t => `
+        <tr>
+          <td>${t.id}</td><td>${t.plc_id}</td><td>${t.name}</td>
+          <td>${t.db}.${t.offset}.${t.bit}</td><td>${t.type}</td><td>${t.metric_id}</td><td>${t.label}</td>
+          <td><button class="danger" onclick="deleteTag(${t.id})">Usuń</button></td>
+        </tr>`).join("");
+      for (const id of ["threshold-tag-select", "bitalarm-tag-select"]) {
+        document.getElementById(id).innerHTML =
+          TAGS.map(t => `<option value="${t.id}">#${t.id} ${t.name} (${t.metric_id})</option>`).join("");
+      }
+    }
+
+    async function loadThresholds() {
+      const rows = await fetchJson("/api/thresholds");
+      document.querySelector("#threshold-table tbody").innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.id}</td><td>${r.tag_id}</td><td>${r.min ?? ""}</td><td>${r.max ?? ""}</td>
+          <td><button class="danger" onclick="deleteThreshold(${r.id})">Usuń</button></td>
+        </tr>`).join("");
+    }
+
+    async function loadBitAlarms() {
+      const rows = await fetchJson("/api/bit-alarms");
+      document.querySelector("#bitalarm-table tbody").innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.id}</td><td>${r.tag_id}</td><td>${r.bit_index}</td><td>${r.description}</td>
+          <td><button class="danger" onclick="deleteBitAlarm(${r.id})">Usuń</button></td>
+        </tr>`).join("");
+    }
+
+    async function deletePlc(id) { await fetchJson(`/api/plcs/${id}`, { method: "DELETE" }); await refreshAll(); }
+    async function deleteTag(id) { await fetchJson(`/api/tags/${id}`, { method: "DELETE" }); await refreshAll(); }
+    async function deleteThreshold(id) { await fetchJson(`/api/thresholds/${id}`, { method: "DELETE" }); await loadThresholds(); }
+    async function deleteBitAlarm(id) { await fetchJson(`/api/bit-alarms/${id}`, { method: "DELETE" }); await loadBitAlarms(); }
+
+    document.getElementById("plc-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetchJson("/api/plcs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formToJson(e.target)) });
+      e.target.reset();
+      await refreshAll();
+    });
+
+    document.getElementById("tag-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetchJson("/api/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formToJson(e.target)) });
+      e.target.reset();
+      await refreshAll();
+    });
+
+    document.getElementById("threshold-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetchJson("/api/thresholds", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formToJson(e.target)) });
+      e.target.reset();
+      await loadThresholds();
+    });
+
+    document.getElementById("bitalarm-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await fetchJson("/api/bit-alarms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formToJson(e.target)) });
+      e.target.reset();
+      await loadBitAlarms();
+    });
+
+    async function refreshAll() {
+      await loadAreas();
+      await loadPlcs();
+      await loadTags();
+      await loadThresholds();
+      await loadBitAlarms();
+    }
+
+    refreshAll();
+  </script>
+</body>
+</html>
