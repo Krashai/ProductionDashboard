@@ -64,22 +64,32 @@ def build_area_payload(
         plcs_by_area.setdefault(plc["area_id"], []).append(plc)
         plc_area_by_id[plc["id"]] = plc["area_id"]
 
-    tags_by_metric_id: dict[str, dict] = {t["metric_id"]: t for t in tags}
     threshold_by_tag_id: dict[int, dict] = {r["tag_id"]: r for r in threshold_rules}
     bit_alarms_by_tag_id: dict[int, list[dict]] = {}
     for rule in bit_alarm_rules:
         bit_alarms_by_tag_id.setdefault(rule["tag_id"], []).append(rule)
 
+    # Every tag is looked at twice per area (once for `metrics`, once for
+    # `alarms`) — memoize the alarm evaluation per tag id so a tag's
+    # threshold/bit-alarm rules are only evaluated once per build.
+    _alarm_cache: dict[int, tuple[bool, str | None]] = {}
+
     def _tag_alarm(tag: dict) -> tuple[bool, str | None]:
+        cached = _alarm_cache.get(tag["id"])
+        if cached is not None:
+            return cached
         plc_state = live_snapshot.get(tag["plc_id"], {})
         value = plc_state.get("tag_values", {}).get(tag["name"])
         threshold_rule = threshold_by_tag_id.get(tag["id"])
         bit_rules = bit_alarms_by_tag_id.get(tag["id"], [])
         if threshold_rule is not None:
-            return _evaluate_threshold(value, threshold_rule)
-        if bit_rules:
-            return _evaluate_bit_alarms(value, bit_rules)
-        return False, None
+            result = _evaluate_threshold(value, threshold_rule)
+        elif bit_rules:
+            result = _evaluate_bit_alarms(value, bit_rules)
+        else:
+            result = (False, None)
+        _alarm_cache[tag["id"]] = result
+        return result
 
     result: list[dict] = []
     for area in AREA_DEFINITIONS:
@@ -87,6 +97,17 @@ def build_area_payload(
         area_online = bool(area_plcs) and all(
             live_snapshot.get(plc["id"], {}).get("online", False) for plc in area_plcs
         )
+
+        # Tags scoped to THIS area's PLCs only — not a global metric_id
+        # lookup across all tags. Defense in depth: app.api.tags already
+        # rejects a tag whose metric_id names a different area than its
+        # own PLC's area_id (see _assert_metric_id_matches_plc_area), but
+        # scoping here too means even a bypass of that check (direct DB
+        # edit, a bug, a future write path that forgets the check) can
+        # never leak a value onto the wrong area's wallboard card — a
+        # tag only ever contributes to the area its own PLC belongs to.
+        tags_in_area = [t for t in tags if plc_area_by_id.get(t["plc_id"]) == area["id"]]
+        tags_by_metric_id: dict[str, dict] = {t["metric_id"]: t for t in tags_in_area}
 
         # `metrics` is strictly the frozen areas.ts contract (always the
         # same known keys) — see app.domain.areas module docstring.
@@ -117,9 +138,7 @@ def build_area_payload(
         # currently in alarm. Fault-word/status-byte tags with bit-alarm
         # rules typically only ever appear here, never in `metrics`.
         alarms: list[dict] = []
-        for tag in tags:
-            if plc_area_by_id.get(tag["plc_id"]) != area["id"]:
-                continue
+        for tag in tags_in_area:
             alarm, alarm_description = _tag_alarm(tag)
             if alarm:
                 alarms.append(

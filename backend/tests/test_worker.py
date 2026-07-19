@@ -13,10 +13,10 @@ without needing a running asyncio loop at all.
 from unittest.mock import MagicMock
 
 import pytest
-from snap7.util import set_real, set_int, set_bool
+from snap7.util import set_bool, set_int, set_real, set_string
 
 from app.plc.live_store import LiveStore
-from app.plc.worker import PLCWorker
+from app.plc.worker import PLCWorker, _STRING_BUFFER_WIDTH
 
 
 def _plc_config(**overrides):
@@ -204,3 +204,49 @@ def test_thread_run_loop_calls_run_once_repeatedly_until_stopped():
 
     assert not worker.is_alive()
     assert mock_client.db_read.call_count >= 2
+
+
+# --- HIGH #4: STRING tags need a much wider read buffer than the old
+# flat "+4" gave them (S7 STRING can be up to 256 bytes: 2 header + up
+# to 254 data bytes), or the read is silently truncated / decode raises.
+
+def test_run_once_sizes_the_db_read_wide_enough_for_a_string_tag():
+    plc = _plc_config(id=1)
+    tags = [_tag(id=1, name="Batch_Name", db=1, offset=0, type="STRING")]
+    worker, mock_client, live_store = _worker_with_mock_client(plc, tags)
+    mock_client.get_connected.return_value = True
+
+    raw = bytearray(300)
+    set_string(raw, 0, "LOT-2026-07-19-A", max_size=254)
+    mock_client.db_read.return_value = raw
+
+    worker.run_once()
+
+    called_size = mock_client.db_read.call_args[0][2]
+    assert called_size >= _STRING_BUFFER_WIDTH
+    assert live_store.snapshot()[1]["tag_values"]["Batch_Name"] == "LOT-2026-07-19-A"
+
+
+def test_run_once_decodes_string_tag_alongside_other_tags_in_same_db():
+    """A STRING tag sharing a DB block with tags at higher offsets must
+    not truncate the shared read below what the STRING needs."""
+    plc = _plc_config(id=1)
+    tags = [
+        _tag(id=1, name="Batch_Name", db=1, offset=0, type="STRING"),
+        _tag(id=2, name="Temp", db=1, offset=260, type="REAL"),
+    ]
+    worker, mock_client, live_store = _worker_with_mock_client(plc, tags)
+    mock_client.get_connected.return_value = True
+
+    raw = bytearray(400)
+    set_string(raw, 0, "LOT-42", max_size=254)
+    set_real(raw, 260, 7.5)
+    mock_client.db_read.return_value = raw
+
+    worker.run_once()
+
+    called_size = mock_client.db_read.call_args[0][2]
+    assert called_size >= 260 + 4  # covers the REAL tag too
+    values = live_store.snapshot()[1]["tag_values"]
+    assert values["Batch_Name"] == "LOT-42"
+    assert values["Temp"] == pytest.approx(7.5)

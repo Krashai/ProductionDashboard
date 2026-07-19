@@ -135,3 +135,42 @@ def test_shutdown_stops_every_running_worker():
 
     assert all(w.stopped for w in FakeWorker.instances)
     assert supervisor.active_plc_ids == set()
+
+
+def test_reload_is_thread_safe_under_concurrent_calls():
+    """HIGH finding #3: sync CRUD route handlers run in FastAPI's
+    threadpool, so two admin-panel writes can call reload() at the same
+    time. Without a lock, interleaved read-diff-mutate sequences on
+    _workers/_fingerprints can leak a worker thread (started, then
+    silently un-tracked with nothing left to ever call .stop() on it).
+    Hammer reload() from several threads with configs that force
+    constant replace-churn and assert two invariants hold afterward:
+    _workers/_fingerprints never fall out of lockstep, and no worker
+    that was ever started+replaced was left un-stopped (orphaned).
+    """
+    import threading
+
+    supervisor = PollingSupervisor(live_store=LiveStore(), worker_factory=_factory)
+    errors: list[Exception] = []
+
+    def hammer(offset: int) -> None:
+        try:
+            for i in range(50):
+                ip = "10.10.0.10" if (i + offset) % 2 == 0 else "10.10.0.11"
+                supervisor.reload([{"id": 1, "ip": ip}], [])
+        except Exception as exc:  # pragma: no cover - only on failure
+            errors.append(exc)
+
+    threads = [threading.Thread(target=hammer, args=(n,)) for n in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert errors == []
+    assert set(supervisor._workers.keys()) == set(supervisor._fingerprints.keys())
+
+    tracked_current = set(supervisor._workers.values())
+    for instance in FakeWorker.instances:
+        if instance.started and instance not in tracked_current:
+            assert instance.stopped, "worker was started, replaced, but never stopped (leak)"

@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_admin_token
+from app.db.alarm_rule_lock import THRESHOLD_BIT_ALARM_LOCK
 from app.db.models import BitAlarmRule, Tag, ThresholdRule
 from app.db.schemas import BitAlarmRuleCreate, BitAlarmRuleRead, BitAlarmRuleUpdate
 
 router = APIRouter(prefix="/api/bit-alarms", tags=["bit-alarms"])
+_write_protected = [Depends(require_admin_token)]
 
 
 def _get_or_404(db: Session, rule_id: int) -> BitAlarmRule:
@@ -47,27 +49,30 @@ def get_bit_alarm(rule_id: int, db: Session = Depends(get_db)):
     return _get_or_404(db, rule_id)
 
 
-@router.post("", response_model=BitAlarmRuleRead, status_code=201)
+@router.post("", response_model=BitAlarmRuleRead, status_code=201, dependencies=_write_protected)
 def create_bit_alarm(payload: BitAlarmRuleCreate, db: Session = Depends(get_db)):
-    _assert_tag_exists_and_free_of_threshold(db, payload.tag_id)
-    rule = BitAlarmRule(**payload.model_dump())
-    db.add(rule)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Tag {payload.tag_id} already has a bit-alarm rule for "
-                f"bit {payload.bit_index}"
-            ),
-        )
+    # See app.db.alarm_rule_lock docstring: closes the TOCTOU window
+    # between the "no threshold yet" check and the INSERT.
+    with THRESHOLD_BIT_ALARM_LOCK:
+        _assert_tag_exists_and_free_of_threshold(db, payload.tag_id)
+        rule = BitAlarmRule(**payload.model_dump())
+        db.add(rule)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Tag {payload.tag_id} already has a bit-alarm rule for "
+                    f"bit {payload.bit_index}"
+                ),
+            )
     db.refresh(rule)
     return rule
 
 
-@router.put("/{rule_id}", response_model=BitAlarmRuleRead)
+@router.put("/{rule_id}", response_model=BitAlarmRuleRead, dependencies=_write_protected)
 def update_bit_alarm(
     rule_id: int, payload: BitAlarmRuleUpdate, db: Session = Depends(get_db)
 ):
@@ -83,7 +88,7 @@ def update_bit_alarm(
     return rule
 
 
-@router.delete("/{rule_id}", status_code=204)
+@router.delete("/{rule_id}", status_code=204, dependencies=_write_protected)
 def delete_bit_alarm(rule_id: int, db: Session = Depends(get_db)):
     rule = _get_or_404(db, rule_id)
     db.delete(rule)

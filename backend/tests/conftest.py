@@ -1,10 +1,24 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db.database import Base
-from app.main import create_app
+# app.main's module-level `app = create_app()` (the production
+# `uvicorn app.main:app` entry point) runs unconditionally on import —
+# see its comment for why a "skip if unset" guard there is actively
+# harmful. That means merely importing app.main (next line) needs
+# ADMIN_API_TOKEN set to *something*. This placeholder is never used by
+# any real test: every test below builds its own fully isolated app via
+# create_app(admin_token=TEST_ADMIN_TOKEN, ...) and never touches
+# app.main's module-level `app` object. setdefault() so a real
+# ADMIN_API_TOKEN in the environment (there shouldn't be one in CI/dev)
+# is never clobbered.
+os.environ.setdefault("ADMIN_API_TOKEN", "conftest-import-placeholder-unused-by-tests")
+
+from app.db.database import Base  # noqa: E402
+from app.main import create_app  # noqa: E402
 
 
 @pytest.fixture()
@@ -50,6 +64,9 @@ class NoopWorker:
         pass
 
 
+TEST_ADMIN_TOKEN = "test-admin-token-do-not-use-in-prod"
+
+
 @pytest.fixture()
 def app(tmp_path):
     """A fully wired FastAPI app instance backed by its own temp SQLite
@@ -65,10 +82,24 @@ def app(tmp_path):
         database_url=f"sqlite:///{db_path}",
         worker_factory=NoopWorker,
         poll_interval=0.05,
+        admin_token=TEST_ADMIN_TOKEN,
     )
 
 
 @pytest.fixture()
 def client(app):
+    """Default client used by all CRUD/behavior tests. Carries a valid
+    X-Admin-Token on every request (harmless on GET, required on
+    POST/PUT/DELETE) so existing tests keep exercising CRUD behavior
+    without also having to think about auth — the auth mechanism itself
+    is covered separately in tests/test_api_auth.py.
+    """
+    with TestClient(app, headers={"X-Admin-Token": TEST_ADMIN_TOKEN}) as c:
+        yield c
+
+
+@pytest.fixture()
+def anon_client(app):
+    """Same app, no admin token attached — for auth-specific tests."""
     with TestClient(app) as c:
         yield c

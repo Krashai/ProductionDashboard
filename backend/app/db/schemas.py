@@ -4,6 +4,21 @@ Kept separate from app.db.models (SQLAlchemy) on purpose — mixing ORM and
 API validation into one class (as the gateway pattern's PLCConfig sort of
 does) makes it easy to accidentally leak DB-only concerns into the wire
 format. Here the two are decoupled: routers convert explicitly.
+
+PUT semantics are deliberately NOT uniform across entities:
+  - PlcUpdate / TagUpdate: full replace. PUT requires every field, same
+    as POST — a client must send the complete object back, matching how
+    the admin panel's forms already always submit every field.
+  - ThresholdRuleUpdate / BitAlarmRuleUpdate: partial update
+    (`exclude_unset=True` in the router). These exist mid-object-graph
+    (a rule always belongs to one fixed tag_id that a PUT can't change
+    anyway — tag_id isn't even part of the *Update schema), so letting
+    a client send just the field(s) it's changing (e.g. only `max`) is
+    both safer (can't accidentally null out `min` by omitting it) and
+    matches how the admin panel's threshold/bit-alarm edit affordances
+    are built. Not a bug — just two different, each-locally-sensible
+    conventions; documented here since nothing else in the code makes
+    the split obvious.
 """
 from __future__ import annotations
 

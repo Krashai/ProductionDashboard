@@ -9,9 +9,15 @@ Used for:
   - GET /api/areas — read-only reference data for the admin panel's
     area/metric dropdowns, so operators pick valid metric_id values
     instead of typing free text.
-  - app.plc.aggregator — validating that a Tag.metric_id belongs to the
-    area its owning Plc.area_id points at, and for grouping the WS/
-    /status payload by area in a stable, known order.
+  - app.api.tags — METRIC_TO_AREA is the actual enforcement point:
+    creating/updating a Tag whose metric_id names one of these known
+    metrics is rejected (409) unless it belongs to the same area as the
+    tag's own Plc.area_id. This is what stops a misconfigured tag from
+    silently overwriting the value on the wrong wallboard card.
+  - app.plc.aggregator — grouping the WS//status payload by area in a
+    stable, known order, and (defense in depth, in case the app.api.tags
+    check above is ever bypassed) scoping each area's tags to only those
+    belonging to a PLC actually assigned to that area.
 """
 from __future__ import annotations
 

@@ -3,11 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, reload_supervisor
+from app.api.deps import get_db, reload_supervisor, require_admin_token
 from app.db.models import Plc
 from app.db.schemas import PlcCreate, PlcRead, PlcUpdate
 
 router = APIRouter(prefix="/api/plcs", tags=["plcs"])
+_write_protected = [Depends(require_admin_token)]
 
 
 def _get_or_404(db: Session, plc_id: int) -> Plc:
@@ -27,7 +28,7 @@ def get_plc(plc_id: int, db: Session = Depends(get_db)):
     return _get_or_404(db, plc_id)
 
 
-@router.post("", response_model=PlcRead, status_code=201)
+@router.post("", response_model=PlcRead, status_code=201, dependencies=_write_protected)
 def create_plc(payload: PlcCreate, request: Request, db: Session = Depends(get_db)):
     plc = Plc(**payload.model_dump())
     db.add(plc)
@@ -37,7 +38,7 @@ def create_plc(payload: PlcCreate, request: Request, db: Session = Depends(get_d
     return plc
 
 
-@router.put("/{plc_id}", response_model=PlcRead)
+@router.put("/{plc_id}", response_model=PlcRead, dependencies=_write_protected)
 def update_plc(
     plc_id: int, payload: PlcUpdate, request: Request, db: Session = Depends(get_db)
 ):
@@ -50,7 +51,7 @@ def update_plc(
     return plc
 
 
-@router.delete("/{plc_id}", status_code=204)
+@router.delete("/{plc_id}", status_code=204, dependencies=_write_protected)
 def delete_plc(plc_id: int, request: Request, db: Session = Depends(get_db)):
     plc = _get_or_404(db, plc_id)
     db.delete(plc)

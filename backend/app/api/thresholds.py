@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_admin_token
+from app.db.alarm_rule_lock import THRESHOLD_BIT_ALARM_LOCK
 from app.db.models import BitAlarmRule, Tag, ThresholdRule
 from app.db.schemas import ThresholdRuleCreate, ThresholdRuleRead, ThresholdRuleUpdate
 
 router = APIRouter(prefix="/api/thresholds", tags=["thresholds"])
+_write_protected = [Depends(require_admin_token)]
 
 
 def _get_or_404(db: Session, rule_id: int) -> ThresholdRule:
@@ -47,23 +49,26 @@ def get_threshold(rule_id: int, db: Session = Depends(get_db)):
     return _get_or_404(db, rule_id)
 
 
-@router.post("", response_model=ThresholdRuleRead, status_code=201)
+@router.post("", response_model=ThresholdRuleRead, status_code=201, dependencies=_write_protected)
 def create_threshold(payload: ThresholdRuleCreate, db: Session = Depends(get_db)):
-    _assert_tag_exists_and_free_of_bit_alarms(db, payload.tag_id)
-    rule = ThresholdRule(**payload.model_dump())
-    db.add(rule)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409, detail=f"Tag {payload.tag_id} already has a threshold rule"
-        )
+    # See app.db.alarm_rule_lock docstring: closes the TOCTOU window
+    # between the "no bit-alarm yet" check and the INSERT.
+    with THRESHOLD_BIT_ALARM_LOCK:
+        _assert_tag_exists_and_free_of_bit_alarms(db, payload.tag_id)
+        rule = ThresholdRule(**payload.model_dump())
+        db.add(rule)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409, detail=f"Tag {payload.tag_id} already has a threshold rule"
+            )
     db.refresh(rule)
     return rule
 
 
-@router.put("/{rule_id}", response_model=ThresholdRuleRead)
+@router.put("/{rule_id}", response_model=ThresholdRuleRead, dependencies=_write_protected)
 def update_threshold(
     rule_id: int, payload: ThresholdRuleUpdate, db: Session = Depends(get_db)
 ):
@@ -75,7 +80,7 @@ def update_threshold(
     return rule
 
 
-@router.delete("/{rule_id}", status_code=204)
+@router.delete("/{rule_id}", status_code=204, dependencies=_write_protected)
 def delete_threshold(rule_id: int, db: Session = Depends(get_db)):
     rule = _get_or_404(db, rule_id)
     db.delete(rule)

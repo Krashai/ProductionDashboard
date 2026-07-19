@@ -19,6 +19,13 @@ services:
       - dashboard_plc_data:/app/data
     environment:
       - DASHBOARD_DB_PATH=/app/data/dashboard.db
+      # Required, no default: guards every mutating (POST/PUT/DELETE)
+      # /api/* route (see app/api/deps.py:require_admin_token). Provide
+      # via a `.env` file next to this compose file (git-ignored) or a
+      # shell export before `docker compose up` — the ${VAR:?...} syntax
+      # below makes compose refuse to start rather than silently run
+      # with no token / an empty one.
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:?Set ADMIN_API_TOKEN (env or .env) before starting — no default is provided, by design}
     networks:
       - dashboard_plc_net
 

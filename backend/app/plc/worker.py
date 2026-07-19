@@ -31,6 +31,39 @@ from app.plc.live_store import LiveStore
 
 ClientFactory = Callable[[], Any]
 
+_FIXED_TYPE_WIDTHS = {
+    "BOOL": 1,
+    "BYTE": 1,
+    "WORD": 2,
+    "INT": 2,
+    "DINT": 4,
+    "REAL": 4,
+}
+# S7 STRING wire format: 2 header bytes (declared max length, actual
+# length) + up to 254 data bytes = 256 bytes max. The Tag schema has no
+# per-tag configurable max-length field, so this is a deliberately
+# generous fixed upper bound rather than an exact size — db_read()-ing a
+# few bytes more than a short string actually needs is harmless (just
+# slightly more data transferred), but *under*-reading truncates the
+# string or raises inside decode_tag_value. A `Tag.string_max_size`
+# column would let this be tightened per-tag if read volume ever became
+# a real concern; not needed at this scale (a handful of STRING tags
+# across 8 PLCs).
+_STRING_BUFFER_WIDTH = 256
+
+
+def _tag_width(tag: dict) -> int:
+    """Bytes needed from `tag['offset']` to safely decode this tag —
+    used to size the single db_read() covering every tag in a DB block.
+    Previously hardcoded to a flat +4, which silently truncated (or threw
+    inside decode) any STRING tag, since S7 strings can be up to 256
+    bytes, not 4.
+    """
+    tag_type = tag["type"].upper()
+    if tag_type == "STRING":
+        return _STRING_BUFFER_WIDTH
+    return _FIXED_TYPE_WIDTHS.get(tag_type, 4)
+
 
 def _default_client_factory() -> Any:
     # Imported lazily so importing this module never requires a working
@@ -57,11 +90,10 @@ class PLCWorker(threading.Thread):
         self.running = True
         self.client = client_factory()
 
-    def _connect_if_needed(self) -> bool:
+    def _connect_if_needed(self) -> None:
         if self.client.get_connected():
-            return True
+            return
         self.client.connect(self.plc["ip"], self.plc["rack"], self.plc["slot"])
-        return True
 
     def _tags_by_db(self) -> dict[int, list[dict]]:
         grouped: dict[int, list[dict]] = {}
@@ -72,7 +104,7 @@ class PLCWorker(threading.Thread):
     def _read_all_tags(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for db_num, tags in self._tags_by_db().items():
-            max_offset = max(t["offset"] for t in tags) + 4
+            max_offset = max(t["offset"] + _tag_width(t) for t in tags)
             raw = self.client.db_read(db_num, 0, max_offset)
             for tag in tags:
                 try:

@@ -281,3 +281,38 @@ def test_missing_value_never_triggers_alarm():
     metric = next(a for a in payload if a["area_id"] == "chlodnia-1")["metrics"]["chlodnia-1-temp"]
     assert metric["value"] is None
     assert metric["alarm"] is False
+
+
+def test_tag_from_wrong_area_never_leaks_onto_a_different_areas_metric_card():
+    """HIGH finding #5, defense-in-depth: app.api.tags is supposed to
+    reject this combination at write time, but build_area_payload itself
+    must ALSO refuse to let a tag whose owning PLC is in one area
+    populate a metric_id belonging to a different area — e.g. if the row
+    were ever written by a path that skips that check (direct DB edit, a
+    future bug, a migration). Here a PLC in chlodnia-2 area is
+    (incorrectly) given a tag with metric_id="chlodnia-1-temp"; that
+    value must not appear on chlodnia-1's card.
+    """
+    plcs = [{"id": 1, "area_id": "chlodnia-2"}]
+    tags = [
+        {
+            "id": 10,
+            "plc_id": 1,
+            "name": "Temp_Hala",
+            "metric_id": "chlodnia-1-temp",  # mismatched on purpose
+            "label": "Temp",
+            "unit": "°C",
+            "decimals": 1,
+        }
+    ]
+    live_snapshot = {1: {"online": True, "tag_values": {"Temp_Hala": 99.9}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+
+    chlodnia1 = next(a for a in payload if a["area_id"] == "chlodnia-1")
+    assert chlodnia1["metrics"]["chlodnia-1-temp"]["value"] is None
+
+    chlodnia2 = next(a for a in payload if a["area_id"] == "chlodnia-2")
+    assert "chlodnia-1-temp" not in chlodnia2["metrics"]

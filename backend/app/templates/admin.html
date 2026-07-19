@@ -106,10 +106,36 @@
   </section>
 
   <script>
-    const API = "";
+    // --- Admin auth token -----------------------------------------------
+    // The backend requires X-Admin-Token on every POST/PUT/DELETE to
+    // /api/* (GET and /ws stay open — read-only, internal network). This
+    // panel is the only current write client, so it asks for the token
+    // once and keeps it in localStorage for subsequent visits/requests.
+    function getAdminToken() {
+      let token = localStorage.getItem("adminToken");
+      if (!token) {
+        token = window.prompt("Token administratora (X-Admin-Token):") || "";
+        localStorage.setItem("adminToken", token);
+      }
+      return token;
+    }
 
-    async function fetchJson(url, options) {
-      const resp = await fetch(url, options);
+    function clearAdminToken() {
+      localStorage.removeItem("adminToken");
+    }
+
+    async function fetchJson(url, options = {}) {
+      const method = (options.method || "GET").toUpperCase();
+      const headers = { ...(options.headers || {}) };
+      if (method !== "GET") {
+        headers["X-Admin-Token"] = getAdminToken();
+      }
+      const resp = await fetch(url, { ...options, headers });
+      if (resp.status === 401) {
+        clearAdminToken();
+        alert("Nieprawidłowy lub brakujący token administratora. Odśwież stronę, aby podać go ponownie.");
+        throw new Error("unauthorized");
+      }
       if (!resp.ok) {
         const body = await resp.text();
         alert(`Błąd ${resp.status}: ${body}`);
@@ -135,62 +161,118 @@
       return out;
     }
 
+    // --- Safe DOM rendering ----------------------------------------------
+    // Every value below comes from the REST API (ultimately operator- or
+    // future-integration-supplied, stored in SQLite) and is rendered via
+    // textContent/DOM properties only — never innerHTML/template-literal
+    // interpolation — so a PLC name, tag label, or alarm description
+    // containing "<script>" or similar can never execute as markup.
+    function clearChildren(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function makeOption(value, text) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      return opt;
+    }
+
+    function makeCell(text) {
+      const cell = document.createElement("td");
+      cell.textContent = text === null || text === undefined ? "" : String(text);
+      return cell;
+    }
+
+    function makeDeleteButton(onClick) {
+      const cell = document.createElement("td");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "danger";
+      btn.textContent = "Usuń";
+      btn.addEventListener("click", onClick);
+      cell.appendChild(btn);
+      return cell;
+    }
+
+    function renderTable(tbody, items, cellValuesFn, onDelete) {
+      clearChildren(tbody);
+      for (const item of items) {
+        const tr = document.createElement("tr");
+        for (const value of cellValuesFn(item)) {
+          tr.appendChild(makeCell(value));
+        }
+        tr.appendChild(makeDeleteButton(() => onDelete(item.id)));
+        tbody.appendChild(tr);
+      }
+    }
+
     let AREAS = [];
     let PLCS = [];
     let TAGS = [];
 
     async function loadAreas() {
       AREAS = await fetchJson("/api/areas");
+
       const select = document.getElementById("plc-area-select");
-      select.innerHTML = AREAS.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+      clearChildren(select);
+      for (const a of AREAS) select.appendChild(makeOption(a.id, a.name));
+
       const metricOptions = document.getElementById("metric-options");
-      metricOptions.innerHTML = AREAS.flatMap(a => a.metrics).map(m => `<option value="${m.id}">`).join("");
+      clearChildren(metricOptions);
+      for (const a of AREAS) {
+        for (const m of a.metrics) metricOptions.appendChild(makeOption(m.id, m.id));
+      }
     }
 
     async function loadPlcs() {
       PLCS = await fetchJson("/api/plcs");
-      const tbody = document.querySelector("#plc-table tbody");
-      tbody.innerHTML = PLCS.map(p => `
-        <tr>
-          <td>${p.id}</td><td>${p.name}</td><td>${p.area_id}</td><td>${p.ip}</td>
-          <td>${p.rack}</td><td>${p.slot}</td><td>${p.plc_type}</td>
-          <td><button class="danger" onclick="deletePlc(${p.id})">Usuń</button></td>
-        </tr>`).join("");
+      renderTable(
+        document.querySelector("#plc-table tbody"),
+        PLCS,
+        (p) => [p.id, p.name, p.area_id, p.ip, p.rack, p.slot, p.plc_type],
+        deletePlc
+      );
+
       const select = document.getElementById("tag-plc-select");
-      select.innerHTML = PLCS.map(p => `<option value="${p.id}">${p.name} (${p.area_id})</option>`).join("");
+      clearChildren(select);
+      for (const p of PLCS) select.appendChild(makeOption(p.id, `${p.name} (${p.area_id})`));
     }
 
     async function loadTags() {
       TAGS = await fetchJson("/api/tags");
-      const tbody = document.querySelector("#tag-table tbody");
-      tbody.innerHTML = TAGS.map(t => `
-        <tr>
-          <td>${t.id}</td><td>${t.plc_id}</td><td>${t.name}</td>
-          <td>${t.db}.${t.offset}.${t.bit}</td><td>${t.type}</td><td>${t.metric_id}</td><td>${t.label}</td>
-          <td><button class="danger" onclick="deleteTag(${t.id})">Usuń</button></td>
-        </tr>`).join("");
+      renderTable(
+        document.querySelector("#tag-table tbody"),
+        TAGS,
+        (t) => [t.id, t.plc_id, t.name, `${t.db}.${t.offset}.${t.bit}`, t.type, t.metric_id, t.label],
+        deleteTag
+      );
+
       for (const id of ["threshold-tag-select", "bitalarm-tag-select"]) {
-        document.getElementById(id).innerHTML =
-          TAGS.map(t => `<option value="${t.id}">#${t.id} ${t.name} (${t.metric_id})</option>`).join("");
+        const select = document.getElementById(id);
+        clearChildren(select);
+        for (const t of TAGS) select.appendChild(makeOption(t.id, `#${t.id} ${t.name} (${t.metric_id})`));
       }
     }
 
     async function loadThresholds() {
       const rows = await fetchJson("/api/thresholds");
-      document.querySelector("#threshold-table tbody").innerHTML = rows.map(r => `
-        <tr>
-          <td>${r.id}</td><td>${r.tag_id}</td><td>${r.min ?? ""}</td><td>${r.max ?? ""}</td>
-          <td><button class="danger" onclick="deleteThreshold(${r.id})">Usuń</button></td>
-        </tr>`).join("");
+      renderTable(
+        document.querySelector("#threshold-table tbody"),
+        rows,
+        (r) => [r.id, r.tag_id, r.min ?? "", r.max ?? ""],
+        deleteThreshold
+      );
     }
 
     async function loadBitAlarms() {
       const rows = await fetchJson("/api/bit-alarms");
-      document.querySelector("#bitalarm-table tbody").innerHTML = rows.map(r => `
-        <tr>
-          <td>${r.id}</td><td>${r.tag_id}</td><td>${r.bit_index}</td><td>${r.description}</td>
-          <td><button class="danger" onclick="deleteBitAlarm(${r.id})">Usuń</button></td>
-        </tr>`).join("");
+      renderTable(
+        document.querySelector("#bitalarm-table tbody"),
+        rows,
+        (r) => [r.id, r.tag_id, r.bit_index, r.description],
+        deleteBitAlarm
+      );
     }
 
     async function deletePlc(id) { await fetchJson(`/api/plcs/${id}`, { method: "DELETE" }); await refreshAll(); }

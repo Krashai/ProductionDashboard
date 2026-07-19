@@ -34,6 +34,47 @@ def test_create_tag_rejects_unknown_plc_id(client):
     assert resp.status_code == 404
 
 
+def test_create_tag_rejects_metric_id_from_a_different_area(client):
+    """HIGH finding #5: a tag on a Chłodnia-1 PLC claiming a Chłodnia-2
+    metric_id must be rejected — otherwise it would silently overwrite
+    the wrong wallboard card's value."""
+    plc = _plc(client, area_id="chlodnia-1")
+    resp = client.post(
+        "/api/tags", json=_tag_payload(plc["id"], metric_id="chlodnia-2-temp")
+    )
+    assert resp.status_code == 409
+
+
+def test_create_tag_allows_metric_id_matching_its_own_area(client):
+    plc = _plc(client, area_id="chlodnia-2")
+    resp = client.post(
+        "/api/tags", json=_tag_payload(plc["id"], metric_id="chlodnia-2-temp")
+    )
+    assert resp.status_code == 201
+
+
+def test_create_tag_allows_arbitrary_metric_id_not_in_known_set(client):
+    """Diagnostic-only (bit-alarm) tags may use a metric_id that isn't
+    one of the frozen areas.ts metrics at all — those are exempt from
+    the area-match check (see app.api.tags docstring)."""
+    plc = _plc(client, area_id="chlodnia-1")
+    resp = client.post(
+        "/api/tags",
+        json=_tag_payload(plc["id"], name="Fault_Word", type="WORD", metric_id="chlodnia-1-faults"),
+    )
+    assert resp.status_code == 201
+
+
+def test_update_tag_rejects_metric_id_from_a_different_area(client):
+    plc = _plc(client, area_id="chlodnia-1")
+    tag = client.post("/api/tags", json=_tag_payload(plc["id"])).json()
+
+    resp = client.put(
+        f"/api/tags/{tag['id']}", json=_tag_payload(plc["id"], metric_id="sprezarkownia-drums")
+    )
+    assert resp.status_code == 409
+
+
 def test_create_tag_rejects_duplicate_metric_id(client):
     plc = _plc(client)
     client.post("/api/tags", json=_tag_payload(plc["id"]))
