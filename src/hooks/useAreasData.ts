@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { startMockStream } from '@/lib/mock/mockStream';
+import { createDefaultAdapter } from '@/lib/backend/defaultAdapter';
 import type { AreaSnapshot } from '@/lib/types';
 
 export type ConnectionStatus = 'connecting' | 'live' | 'offline';
@@ -13,31 +13,36 @@ export interface UseAreasDataResult {
 }
 
 /**
- * Adapter źródła danych — jedyna granica, którą Faza 5 musi podmienić (mock
- * → SSE), żeby zrealizować decyzję #18 z Concept.md bez zmian w UI/hooku.
+ * Adapter źródła danych — jedyna granica, którą Faza 5 podmienia (mock →
+ * WebSocket), żeby zrealizować decyzję #18 z Concept.md bez zmian w UI/hooku.
+ * `onStatus` jest opcjonalny (drugi argument), więc istniejące adaptery,
+ * które go ignorują (np. mock), zachowują pełną kompatybilność wsteczną.
  */
 export interface AreasDataAdapter {
-  subscribe(listener: (snapshots: AreaSnapshot[]) => void): () => void;
+  subscribe(
+    listener: (snapshots: AreaSnapshot[]) => void,
+    onStatus?: (status: ConnectionStatus) => void
+  ): () => void;
 }
 
-const mockAdapter: AreasDataAdapter = {
-  subscribe(listener) {
-    const handle = startMockStream(listener);
-    return () => handle.stop();
-  },
-};
-
-export function useAreasData(adapter: AreasDataAdapter = mockAdapter): UseAreasDataResult {
+export function useAreasData(
+  adapter: AreasDataAdapter = createDefaultAdapter()
+): UseAreasDataResult {
   const [areas, setAreas] = useState<AreaSnapshot[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
 
   useEffect(() => {
-    const unsubscribe = adapter.subscribe((snapshots) => {
-      setAreas(snapshots);
-      setStatus('live');
-      setLastEventAt(new Date());
-    });
+    const unsubscribe = adapter.subscribe(
+      (snapshots) => {
+        setAreas(snapshots);
+        setStatus('live');
+        setLastEventAt(new Date());
+      },
+      (nextStatus) => {
+        setStatus(nextStatus);
+      }
+    );
 
     return unsubscribe;
   }, [adapter]);
