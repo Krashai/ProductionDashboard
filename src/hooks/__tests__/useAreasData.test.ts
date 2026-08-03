@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { useAreasData, type AreasDataAdapter } from '@/hooks/useAreasData';
+import { useAreasData, type AreasDataAdapter, type ConnectionStatus } from '@/hooks/useAreasData';
 import { AREAS } from '@/lib/areas';
 import { DEFAULT_INTERVAL_MS } from '@/lib/mock/mockStream';
 import type { AreaSnapshot } from '@/lib/types';
@@ -35,6 +35,36 @@ function createControlledAdapter() {
     emit: (snapshots: AreaSnapshot[]) => {
       act(() => {
         capturedListener?.(snapshots);
+      });
+    },
+  };
+}
+
+// Adapter testowy, który DODATKOWO wywołuje `onStatus` — symuluje adaptery
+// takie jak createWebSocketAdapter, w odróżnieniu od createControlledAdapter
+// (i mockAdaptera), które go nigdy nie wywołują.
+function createControlledAdapterWithStatus() {
+  let capturedListener: ((snapshots: AreaSnapshot[]) => void) | null = null;
+  let capturedOnStatus: ((status: ConnectionStatus) => void) | null = null;
+
+  const adapter: AreasDataAdapter = {
+    subscribe(listener, onStatus) {
+      capturedListener = listener;
+      capturedOnStatus = onStatus ?? null;
+      return () => {};
+    },
+  };
+
+  return {
+    adapter,
+    emit: (snapshots: AreaSnapshot[]) => {
+      act(() => {
+        capturedListener?.(snapshots);
+      });
+    },
+    reportStatus: (status: ConnectionStatus) => {
+      act(() => {
+        capturedOnStatus?.(status);
       });
     },
   };
@@ -81,6 +111,26 @@ describe('useAreasData', () => {
     expect(unsubscribe).not.toHaveBeenCalled();
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test('adapter wywołujący onStatus("offline") aktualizuje status hooka', () => {
+    const { adapter, emit, reportStatus } = createControlledAdapterWithStatus();
+    const { result } = renderHook(() => useAreasData(adapter));
+
+    emit([makeSnapshot('a')]);
+    expect(result.current.status).toBe('live');
+
+    reportStatus('offline');
+    expect(result.current.status).toBe('offline');
+  });
+
+  test('adapter, który nigdy nie wywołuje onStatus, nadal działa dokładnie jak wcześniej', () => {
+    const { adapter, emit } = createControlledAdapter();
+    const { result } = renderHook(() => useAreasData(adapter));
+
+    expect(result.current.status).toBe('connecting');
+    emit([makeSnapshot('a')]);
+    expect(result.current.status).toBe('live');
   });
 
   describe('domyślny adapter (mock stream) z fake timers', () => {

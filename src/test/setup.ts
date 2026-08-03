@@ -9,3 +9,9 @@ import { cleanup } from '@testing-library/react';
 afterEach(() => {
   cleanup();
 });
+
+// Środowisko testowe jest z definicji "backend-less" (brak realnego backendu
+// PLC) — domyślne źródło danych dla useAreasData()/createDefaultAdapter()
+// musi więc pozostać mockiem, tak jak przed wprowadzeniem adaptera WS,
+// chyba że pojedynczy test świadomie nadpisze tę zmienną przed importem.
+process.env.NEXT_PUBLIC_DATA_SOURCE ??= 'mock';
