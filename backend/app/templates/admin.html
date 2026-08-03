@@ -4,46 +4,186 @@
   <meta charset="utf-8" />
   <title>ProductionDashboard — Panel administracyjny PLC</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
-    h1 { font-size: 1.4rem; }
-    h2 { font-size: 1.1rem; margin-top: 2.5rem; border-bottom: 1px solid #334155; padding-bottom: .25rem; }
-    section { margin-bottom: 2rem; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; font-size: .85rem; }
-    th, td { border: 1px solid #334155; padding: .35rem .5rem; text-align: left; }
-    th { background: #1e293b; }
-    form.inline { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-end; margin-bottom: 1rem; }
-    form.inline label { display: flex; flex-direction: column; font-size: .75rem; gap: .15rem; }
-    input, select { padding: .3rem; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px; }
-    button { padding: .35rem .75rem; border: none; border-radius: 4px; background: #2563eb; color: white; cursor: pointer; }
-    button.danger { background: #dc2626; }
-    .status-ok { color: #22c55e; }
-    .status-bad { color: #ef4444; }
-    .hint { color: #94a3b8; font-size: .8rem; }
-    header.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    /* Design tokens ported 1:1 from DesignGuideline.md (ProductionDashboard's
+       kiosk wallboard visual system) — same slate/blue/emerald/amber/rose
+       role assignment, same soft-large radii and uppercase/tracking-widest
+       typography, so this admin panel reads as part of the same product
+       instead of a bare bolt-on tool. No Tailwind here (framework-less
+       Jinja2 page, see app/api/admin.py) — same tokens, hand-written CSS. */
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --muted-soft: #64748b;
+      --border: #e2e8f0;
+      --border-soft: #f1f5f9;
+      --surface: #ffffff;
+      --bg: #f8fafc;
+      --blue: #2563eb;
+      --blue-50: #eff6ff;
+      --blue-100: #dbeafe;
+      --blue-700: #1d4ed8;
+      --emerald: #059669;
+      --emerald-50: #ecfdf5;
+      --emerald-100: #d1fae5;
+      --emerald-700: #047857;
+      --amber: #d97706;
+      --amber-700: #b45309;
+      --rose: #e11d48;
+      --rose-50: #fff1f2;
+      --rose-100: #ffe4e6;
+      --rose-800: #9f1239;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      margin: 0;
+      padding: 2.5rem clamp(1.5rem, 4vw, 3.5rem) 4rem;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    a { color: var(--blue); }
+    header.page-header {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 1rem; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border-soft);
+      padding-bottom: 1.25rem; margin-bottom: .5rem;
+    }
+    .eyebrow {
+      font-size: .68rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .12em; color: var(--blue); margin: 0 0 .3rem;
+    }
+    h1 { font-size: 1.35rem; font-weight: 900; letter-spacing: -0.01em; margin: 0; color: var(--ink); }
+    h2 {
+      font-size: 1.05rem; font-weight: 900; text-transform: uppercase;
+      letter-spacing: .03em; margin: 0 0 .6rem; color: var(--ink);
+    }
+    h3 {
+      font-size: .8rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--muted); margin: 0 0 .75rem;
+    }
+    .hint { color: var(--muted); font-size: .88rem; max-width: 70ch; margin: 0 0 1rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1.5rem;
+      padding: 1.75rem 2rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    section.card-blue  { border-left: 6px solid var(--blue);   box-shadow: 6px 0 24px -14px rgba(37,99,235,.35); }
+    section.card-slate { border-left: 6px solid #94a3b8;       box-shadow: 6px 0 24px -14px rgba(100,116,139,.25); }
+    section.card-amber { border-left: 6px solid var(--amber);  box-shadow: 6px 0 24px -14px rgba(217,119,6,.3); }
+    section.card-rose  { border-left: 6px solid var(--rose);   box-shadow: 6px 0 24px -14px rgba(225,29,72,.3); }
+    section.card-blue h2  { color: var(--blue-700); }
+    section.card-slate h2 { color: var(--muted); }
+    section.card-amber h2 { color: var(--amber-700); }
+    section.card-rose h2  { color: var(--rose-800); }
+    /* Kreator is the primary, recommended path (VariableAssignmentWizard.md
+       decision log #2) — a faint tinted top matches the guideline's own
+       "highlight the current/primary thing" pattern (e.g. today-column tint
+       in the source app's timeline view), fading back to plain white. */
+    #wizard-section.card-blue {
+      background: linear-gradient(180deg, var(--blue-50) 0%, var(--surface) 260px);
+    }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0 .5rem; font-size: .82rem; }
+    th, td { padding: .55rem .7rem; text-align: left; border-bottom: 1px solid var(--border-soft); }
+    thead th {
+      font-size: .72rem; font-weight: 900; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--muted); background: var(--border-soft); border-bottom: 1px solid var(--border);
+    }
+    tbody tr:hover { background: var(--bg); }
+    tbody tr:last-child td { border-bottom: none; }
+    form.inline { display: flex; flex-wrap: wrap; gap: .85rem; align-items: flex-end; margin: 1rem 0; }
+    /* Applies to every field label on the page — inside form.inline
+       (Sterowniki PLC / Zaawansowane / Progi / Alarmy) AND the wizard's
+       bare <label> elements (the wizard steps aren't wrapped in a <form>),
+       so "Obszar"/"PLC"/"Typ" reads identically whether it's in the raw
+       forms or the guided wizard. Excludes the two labels that are
+       genuinely a different shape (a metric radio row, a checkbox row)
+       rather than "caption above a field". */
+    label:not(.wizard-metric-option):not(.checkbox-label) {
+      display: flex; flex-direction: column; gap: .4rem;
+      font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted);
+    }
+    .checkbox-label {
+      display: flex; align-items: center; gap: .6rem;
+      font-size: .85rem; font-weight: 500; color: var(--ink);
+    }
+    input, select {
+      padding: .5rem .65rem; background: var(--bg); color: var(--ink);
+      border: 1px solid #cbd5e1; border-radius: .6rem; font-size: .85rem;
+      font-family: inherit;
+    }
+    input::placeholder { color: #94a3b8; }
+    input[type="checkbox"], input[type="radio"] {
+      accent-color: var(--blue); width: 1.05em; height: 1.05em;
+    }
+    input:focus, select:focus {
+      background: var(--surface);
+    }
+    input:focus, select:focus, button:focus-visible {
+      outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue);
+    }
+    button {
+      padding: .55rem 1.1rem; border: none; border-radius: .85rem;
+      background: var(--ink); color: white; cursor: pointer;
+      font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+      transition: background-color .15s ease, transform .1s ease;
+    }
+    button:hover { background: #1e293b; }
+    button:active { transform: scale(.96); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.danger { background: var(--rose); }
+    button.danger:hover { background: #be123c; }
+    #logout-btn { background: transparent; color: var(--rose); border: 1px solid var(--rose-100); }
+    #logout-btn:hover { background: var(--rose-50); }
+    /* Wizard "Wstecz" buttons are secondary/ghost — only the forward-moving
+       action per step should read as the primary, dark call-to-action. */
+    .wizard-actions button[id$="-back"] { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+    .wizard-actions button[id$="-back"]:hover { background: var(--bg); }
     .hidden { display: none; }
-    #wizard-section { border: 1px solid #2563eb; border-radius: 8px; padding: 1rem 1.25rem; background: #111c33; }
-    #wizard-section h2 { margin-top: 0; border-bottom-color: #2563eb; }
-    .wizard-step h3 { font-size: 1rem; margin: 0 0 .5rem; }
-    .wizard-step { margin-top: 1rem; }
-    .wizard-metric-option { display: flex; gap: .5rem; align-items: center; margin-bottom: .35rem; }
-    .wizard-metric-option input[type="radio"]:disabled + span { color: #64748b; }
-    .wizard-actions { display: flex; gap: .5rem; margin-top: .75rem; }
-    #wizard-address-preview { font-family: monospace; background: #1e293b; padding: .15rem .4rem; border-radius: 4px; }
-    #wizard-confirmation { font-weight: 600; margin-top: .5rem; }
+    .wizard-step { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px dashed var(--border-soft); }
+    #wizard-step-1 { border-top: none; padding-top: 0; margin-top: 0; }
+    .wizard-metric-option {
+      display: flex; align-items: center; gap: .6rem;
+      padding: .6rem .75rem; border: 1px solid var(--border); border-radius: .75rem;
+      margin-bottom: .5rem; font-size: .85rem; background: var(--surface);
+      transition: border-color .15s ease, background-color .15s ease;
+    }
+    .wizard-metric-option:has(input:checked) { border-color: var(--blue); background: var(--blue-50); }
+    .wizard-metric-option input[type="radio"]:disabled + span { color: var(--muted); }
+    .wizard-metric-option .hint { font-size: .7rem; margin-left: auto; }
+    .wizard-actions { display: flex; gap: .6rem; margin-top: 1rem; }
+    #wizard-address-preview {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--border-soft); padding: .2rem .55rem; border-radius: .5rem; font-size: .85rem;
+    }
+    #wizard-confirmation { font-weight: 700; }
+    .status-ok, .status-bad {
+      display: inline-block; padding: .35rem .8rem; border-radius: 999px;
+      font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .status-ok  { background: var(--emerald-50); color: var(--emerald-700); border: 1px solid var(--emerald-100); }
+    .status-bad { background: var(--rose-50);    color: var(--rose-800);    border: 1px solid var(--rose-100); }
   </style>
 </head>
 <body>
   <header class="page-header">
-    <h1>ProductionDashboard — Panel administracyjny PLC</h1>
+    <div>
+      <p class="eyebrow">Konfiguracja PLC</p>
+      <h1>ProductionDashboard — Panel administracyjny PLC</h1>
+    </div>
     <button type="button" id="logout-btn" class="danger">Wyloguj</button>
   </header>
   <p class="hint">
     Konfiguracja sterowników S7, tagów, progów alarmowych i alarmów bitowych.
     Zmiany są stosowane natychmiast (hot-reload) — bez restartu procesu.
-    Zobacz też <a href="/status" style="color:#93c5fd">/status</a> (diagnostyka na żywo).
+    Zobacz też <a href="/status">/status</a> (diagnostyka na żywo).
   </p>
 
-  <section>
+  <section class="card-slate">
     <h2>Sterowniki PLC</h2>
     <form class="inline" id="plc-form">
       <label>Nazwa <input name="name" required /></label>
@@ -62,7 +202,7 @@
     </table>
   </section>
 
-  <section id="wizard-section">
+  <section id="wizard-section" class="card-blue">
     <h2>Kreator: przypisz zmienną</h2>
     <p class="hint">
       Główna ścieżka podpinania nowej zmiennej PLC do karty metryki na dashboardzie:
@@ -125,7 +265,7 @@
 
     <div class="wizard-step hidden" id="wizard-step-5">
       <h3>Krok 5: Próg alarmowy (opcjonalnie)</h3>
-      <label>
+      <label class="checkbox-label">
         <input type="checkbox" id="wizard-threshold-checkbox" />
         Ustaw próg alarmowy dla tej wartości
       </label>
@@ -151,7 +291,7 @@
     </div>
   </section>
 
-  <section>
+  <section class="card-slate">
     <h2>Zaawansowane / tag diagnostyczny</h2>
     <p class="hint">
       Formularz zaawansowany — surowe pola PLC/DB/offset/typ/metric_id.
@@ -185,7 +325,7 @@
     </table>
   </section>
 
-  <section>
+  <section class="card-amber">
     <h2>Progi alarmowe (ThresholdRule)</h2>
     <p class="hint">Jeden tag = najwyżej jeden próg. Tag z progiem nie może mieć alarmów bitowych.</p>
     <form class="inline" id="threshold-form">
@@ -200,7 +340,7 @@
     </table>
   </section>
 
-  <section>
+  <section class="card-rose">
     <h2>Alarmy bitowe (BitAlarmRule)</h2>
     <p class="hint">Tag może mieć wiele alarmów bitowych (różne bity słowa awarii), ale nie może mieć jednocześnie progu.</p>
     <form class="inline" id="bitalarm-form">
