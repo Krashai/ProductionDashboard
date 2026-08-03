@@ -51,6 +51,11 @@ def probe_app(tmp_path, mock_client):
         poll_interval=0.05,
         admin_token=TEST_ADMIN_TOKEN,
         probe_client_factory=lambda: mock_client,
+        # No-op success by default — a real bare-TCP probe would attempt
+        # an actual socket connection to the fake IPs used throughout
+        # this file. Tests that specifically exercise the pre-connect
+        # probe failure path (below) override this via a fresh app.
+        probe_tcp_probe=lambda ip, timeout: None,
     )
 
 
@@ -155,6 +160,32 @@ def test_probe_connect_failure_returns_502_and_leaves_live_store_and_supervisor_
     assert probe_app.state.live_store.snapshot() == before_live_store
     assert probe_app.state.supervisor.active_plc_ids == before_active_ids
     mock_client.disconnect.assert_called_once()  # finally block still runs
+
+
+# --- 502 connect_failed via the pre-connect TCP probe --------------------
+# The bare-TCP probe (not client.connect() itself) is the actual fail-fast
+# guarantee — see app.plc.probe / app.plc.worker module docstrings for why
+# a real snap7 client's own set_param-based timeout is a silent no-op.
+
+def test_probe_tcp_probe_failure_returns_502_and_never_calls_client_connect(tmp_path, mock_client):
+    db_path = tmp_path / "probe_tcp_fail.db"
+    app = create_app(
+        database_url=f"sqlite:///{db_path}",
+        worker_factory=NoopWorker,
+        poll_interval=0.05,
+        admin_token=TEST_ADMIN_TOKEN,
+        probe_client_factory=lambda: mock_client,
+        probe_tcp_probe=lambda ip, timeout: (_ for _ in ()).throw(OSError("timed out")),
+    )
+    with TestClient(app, headers={"X-Admin-Token": TEST_ADMIN_TOKEN}) as client:
+        plc = _seed_plc(client)
+
+        resp = client.post(f"/api/plcs/{plc['id']}/probe", json=_probe_payload())
+
+        assert resp.status_code == 502
+        assert resp.json() == {"error": "connect_failed"}
+        assert "timed out" not in resp.text
+        mock_client.connect.assert_not_called()
 
 
 # --- 502 read_failed -----------------------------------------------------

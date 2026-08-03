@@ -16,7 +16,9 @@ from app.plc.worker import (
     CONNECT_TIMEOUT_S,
     READ_TIMEOUT_S,
     ClientFactory,
+    Probe,
     _default_client_factory,
+    _default_tcp_probe,
     _tag_width,
     _tighten_read_timeout,
 )
@@ -32,11 +34,21 @@ class ProbeReadError(Exception):
 
 
 def _tighten_connect_timeout(client: Any, timeout_s: float = CONNECT_TIMEOUT_S) -> None:
-    """Best-effort mirror of ``worker._tighten_read_timeout`` for the
-    connect phase: lowers snap7's low-level ping/connect timeout so an
-    unreachable PLC fails within ``timeout_s`` seconds rather than
+    """Best-effort, secondary mirror of ``worker._tighten_read_timeout``
+    for the connect phase: lowers snap7's low-level ping/connect timeout
+    so an unreachable PLC fails within ``timeout_s`` seconds rather than
     hanging on the library's own (much longer) default. Same try/except
     discipline — never fatal to the connect attempt itself.
+
+    This is NOT the primary fail-fast mechanism — ``Client.set_param``
+    doesn't exist on the installed ``python-snap7==3.1.0`` build (a pure
+    -Python rewrite), so against a real client this silently no-ops and
+    ``client.connect()`` would otherwise fall through to snap7's own
+    hardcoded ~5s default. The actual guarantee comes from the bare-TCP
+    ``probe`` call in ``probe_tag_value`` below (the same
+    ``_default_tcp_probe`` used by ``PLCWorker``), which runs first and
+    uses a plain ``socket`` with a real, honored timeout. Kept here only
+    as harmless defense-in-depth for snap7 builds that do expose it.
     """
     try:
         from snap7.type import Parameter
@@ -53,13 +65,22 @@ def probe_tag_value(
     bit: int,
     tag_type: str,
     client_factory: ClientFactory = _default_client_factory,
+    probe: Probe = _default_tcp_probe,
 ) -> Any:
     """Connect to ``plc``, read exactly the bytes needed for ``tag_type``
     at ``db``/``offset``, decode it, and disconnect — always, even on
     error.
 
+    ``probe`` runs a bare, bounded TCP reachability check against the S7
+    port *before* ``client.connect()`` — the same fail-fast mechanism
+    ``PLCWorker`` uses (see its module docstring, HIGH #B1) — so an
+    unreachable/blackholed PLC fails in ~``CONNECT_TIMEOUT_S`` seconds
+    instead of snap7's own much longer internal timeout. Injectable so
+    tests never attempt a real socket connection.
+
     Raises:
-        ProbeConnectError: the connect step failed.
+        ProbeConnectError: the pre-connect probe or the connect step
+            failed.
         ProbeReadError: connect succeeded but db_read/decode failed
             (includes app.plc.decode.UnsupportedTagTypeError for an
             invalid tag_type — though the API layer's Pydantic schema
@@ -68,6 +89,7 @@ def probe_tag_value(
     client = client_factory()
     try:
         try:
+            probe(plc["ip"], CONNECT_TIMEOUT_S)
             _tighten_connect_timeout(client, CONNECT_TIMEOUT_S)
             client.connect(plc["ip"], plc["rack"], plc["slot"])
         except Exception as exc:

@@ -96,6 +96,19 @@ def get_probe_client_factory(request: Request):
     return request.app.state.probe_client_factory
 
 
+def get_probe_tcp_probe(request: Request):
+    """The bare-TCP pre-connect reachability check used by POST
+    /api/plcs/{plc_id}/probe (see app.plc.probe.probe_tag_value's
+    ``probe`` parameter) — the actual fail-fast mechanism, since a real
+    snap7 client's own ``set_param``-based timeout is a silent no-op on
+    the installed python-snap7 build. Pulled off app.state like every
+    other swappable dependency here so tests can inject a no-op/failing
+    stub via ``create_app(probe_tcp_probe=...)`` without ever attempting
+    a real socket connection.
+    """
+    return request.app.state.probe_tcp_probe
+
+
 def reload_supervisor(request: Request, db: Session) -> None:
     """Re-reads Plc/Tag config and reconciles running PLCWorker threads.
     Call after every CRUD write that could affect polling (Plc/Tag

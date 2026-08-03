@@ -16,6 +16,7 @@ from app.plc.probe import (
     _tighten_connect_timeout,
     probe_tag_value,
 )
+from app.plc.worker import CONNECT_TIMEOUT_S
 
 
 def _plc(**overrides):
@@ -33,6 +34,7 @@ def test_probe_tag_value_returns_decoded_value_on_success():
     value = probe_tag_value(
         _plc(), db=1, offset=0, bit=0, tag_type="REAL",
         client_factory=lambda: mock_client,
+        probe=MagicMock(),
     )
 
     assert value == pytest.approx(3.25)
@@ -48,6 +50,7 @@ def test_probe_tag_value_raises_probe_connect_error_on_connect_failure():
         probe_tag_value(
             _plc(), db=1, offset=0, bit=0, tag_type="REAL",
             client_factory=lambda: mock_client,
+            probe=MagicMock(),
         )
 
     mock_client.disconnect.assert_called_once()  # finally still runs
@@ -61,6 +64,7 @@ def test_probe_tag_value_raises_probe_read_error_on_db_read_failure():
         probe_tag_value(
             _plc(), db=1, offset=0, bit=0, tag_type="REAL",
             client_factory=lambda: mock_client,
+            probe=MagicMock(),
         )
 
     mock_client.disconnect.assert_called_once()
@@ -74,6 +78,7 @@ def test_probe_tag_value_raises_probe_read_error_on_decode_failure():
         probe_tag_value(
             _plc(), db=1, offset=0, bit=0, tag_type="REAL",
             client_factory=lambda: mock_client,
+            probe=MagicMock(),
         )
 
 
@@ -88,7 +93,43 @@ def test_probe_tag_value_disconnect_failure_does_not_mask_the_original_error():
         probe_tag_value(
             _plc(), db=1, offset=0, bit=0, tag_type="REAL",
             client_factory=lambda: mock_client,
+            probe=MagicMock(),
         )
+
+
+def test_probe_tag_value_runs_tcp_probe_before_connect():
+    mock_client = MagicMock()
+    raw = bytearray(8)
+    set_real(raw, 0, 1.0)
+    mock_client.db_read.return_value = raw
+    mock_probe = MagicMock()
+    manager = MagicMock()
+    manager.attach_mock(mock_probe, "probe")
+    manager.attach_mock(mock_client.connect, "connect")
+
+    probe_tag_value(
+        _plc(ip="10.20.0.5"), db=1, offset=0, bit=0, tag_type="REAL",
+        client_factory=lambda: mock_client,
+        probe=mock_probe,
+    )
+
+    mock_probe.assert_called_once_with("10.20.0.5", CONNECT_TIMEOUT_S)
+    assert [call[0] for call in manager.mock_calls] == ["probe", "connect"]
+
+
+def test_probe_tag_value_raises_probe_connect_error_when_tcp_probe_fails_and_never_connects():
+    mock_client = MagicMock()
+    mock_probe = MagicMock(side_effect=OSError("timed out"))
+
+    with pytest.raises(ProbeConnectError):
+        probe_tag_value(
+            _plc(), db=1, offset=0, bit=0, tag_type="REAL",
+            client_factory=lambda: mock_client,
+            probe=mock_probe,
+        )
+
+    mock_client.connect.assert_not_called()
+    mock_client.disconnect.assert_called_once()  # finally still runs
 
 
 def test_tighten_connect_timeout_sets_ping_timeout_param_in_milliseconds():

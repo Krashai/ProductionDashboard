@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import (
     get_db,
     get_probe_client_factory,
+    get_probe_tcp_probe,
     reload_supervisor,
     require_admin_token,
 )
@@ -77,6 +78,7 @@ def probe_plc_address(
     payload: ProbeRequest,
     db: Session = Depends(get_db),
     client_factory=Depends(get_probe_client_factory),
+    tcp_probe=Depends(get_probe_tcp_probe),
 ):
     """Test-read an arbitrary S7 address on `plc_id` before committing it
     as a Tag (VariableAssignmentWizard.md §5.1). Uses its own short-lived
@@ -98,6 +100,7 @@ def probe_plc_address(
             bit=payload.bit,
             tag_type=payload.type,
             client_factory=client_factory,
+            probe=tcp_probe,
         )
     except ProbeConnectError:
         logger.exception(

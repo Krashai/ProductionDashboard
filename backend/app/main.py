@@ -32,7 +32,7 @@ from app.db.database import Base, build_engine_and_sessionmaker
 from app.plc.broadcaster import broadcast_loop
 from app.plc.live_store import LiveStore
 from app.plc.supervisor import PollingSupervisor
-from app.plc.worker import PLCWorker, _default_client_factory
+from app.plc.worker import PLCWorker, _default_client_factory, _default_tcp_probe
 
 
 def create_app(
@@ -42,6 +42,7 @@ def create_app(
     admin_token: str | None = None,
     auth_limiter: FailedAuthLimiter | None = None,
     probe_client_factory=_default_client_factory,
+    probe_tcp_probe=_default_tcp_probe,
 ) -> FastAPI:
     """Build one fully-wired app instance.
 
@@ -64,6 +65,12 @@ def create_app(
     must never touch an already-running PLCWorker's connection. Defaults
     to the same lazy real-snap7 factory PLCWorker uses; tests override it
     to inject a MagicMock.
+
+    ``probe_tcp_probe`` is the bare-TCP pre-connect reachability check
+    used ahead of that snap7 connect (same fail-fast mechanism as
+    ``PLCWorker``, see app.plc.worker's module docstring, HIGH #B1) —
+    defaults to the same real ``_default_tcp_probe``; tests override it
+    to avoid ever attempting a real socket connection.
     """
     admin_token = admin_token or os.getenv("ADMIN_API_TOKEN")
     if not admin_token:
@@ -114,6 +121,7 @@ def create_app(
     app.state.admin_token = admin_token
     app.state.auth_limiter = auth_limiter or FailedAuthLimiter()
     app.state.probe_client_factory = probe_client_factory
+    app.state.probe_tcp_probe = probe_tcp_probe
 
     app.include_router(plcs_router)
     app.include_router(tags_router)
