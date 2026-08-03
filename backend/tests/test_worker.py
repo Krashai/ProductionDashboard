@@ -11,6 +11,7 @@ each other, and makes the worker trivially testable via `run_once()`
 without needing a running asyncio loop at all.
 """
 import logging
+import socket
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,6 +23,8 @@ from app.plc.worker import (
     PLCWorker,
     READ_TIMEOUT_S,
     _STRING_BUFFER_WIDTH,
+    _default_tcp_probe,
+    _tighten_read_timeout,
 )
 
 
@@ -388,3 +391,49 @@ def test_connect_exception_with_sensitive_message_is_never_leaked_to_live_store(
     assert snapshot[1]["error"] == "connect_failed"
     assert sensitive not in repr(snapshot)
     assert sensitive in caplog.text
+
+
+# --- Ad-hoc probe timeout helpers (app.plc.probe reuses these) -----------
+# PLCWorker's own long-lived polling connection never calls these itself
+# (see their docstrings) — they're standalone utilities, exercised here
+# directly rather than through a full poll cycle.
+
+def test_default_tcp_probe_succeeds_against_a_listening_socket():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        _default_tcp_probe("127.0.0.1", port=port, timeout=1.0)  # must not raise
+    finally:
+        server.close()
+
+
+def test_default_tcp_probe_raises_when_nothing_is_listening():
+    # Bind-then-immediately-close a socket to reserve a port that is
+    # guaranteed to have nothing listening on it, so the connect fails
+    # fast (connection refused) instead of relying on a slow OS timeout.
+    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe_socket.bind(("127.0.0.1", 0))
+    port = probe_socket.getsockname()[1]
+    probe_socket.close()
+
+    with pytest.raises(OSError):
+        _default_tcp_probe("127.0.0.1", port=port, timeout=1.0)
+
+
+def test_tighten_read_timeout_sets_recv_timeout_param_in_milliseconds():
+    from snap7.type import Parameter
+
+    mock_client = MagicMock()
+
+    _tighten_read_timeout(mock_client, timeout_s=2.5)
+
+    mock_client.set_param.assert_called_once_with(Parameter.RecvTimeout, 2500)
+
+
+def test_tighten_read_timeout_swallows_exceptions_from_set_param():
+    mock_client = MagicMock()
+    mock_client.set_param.side_effect = RuntimeError("param not supported")
+
+    _tighten_read_timeout(mock_client)  # must not raise

@@ -48,6 +48,27 @@ def _assert_metric_id_matches_plc_area(plc: Plc, metric_id: str) -> None:
         )
 
 
+def _raise_for_tag_integrity_error(exc: IntegrityError, payload: TagCreate | TagUpdate) -> None:
+    """Two distinct UNIQUE constraints can fire on Tag writes — metric_id
+    (global) and the (plc_id, name) pair (per-PLC, see
+    app.db.models.Tag.__table_args__). SQLite's IntegrityError message
+    names the offending column(s) (e.g. "UNIQUE constraint failed:
+    tags.plc_id, tags.name" vs "...tags.metric_id"), so we inspect that
+    text to return a 409 worded for whichever one actually conflicted,
+    instead of always blaming metric_id.
+    """
+    message = str(exc.orig)
+    if "tags.plc_id" in message and "tags.name" in message:
+        raise HTTPException(
+            status_code=409,
+            detail=f"name {payload.name!r} is already in use by another tag on this PLC",
+        )
+    raise HTTPException(
+        status_code=409,
+        detail=f"metric_id {payload.metric_id!r} is already in use by another tag",
+    )
+
+
 @router.get("", response_model=list[TagRead])
 def list_tags(db: Session = Depends(get_db)):
     return db.query(Tag).all()
@@ -66,12 +87,9 @@ def create_tag(payload: TagCreate, request: Request, db: Session = Depends(get_d
     db.add(tag)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=f"metric_id {payload.metric_id!r} is already in use by another tag",
-        )
+        _raise_for_tag_integrity_error(exc, payload)
     db.refresh(tag)
     reload_supervisor(request, db)
     return tag
@@ -88,12 +106,9 @@ def update_tag(
         setattr(tag, field, value)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=f"metric_id {payload.metric_id!r} is already in use by another tag",
-        )
+        _raise_for_tag_integrity_error(exc, payload)
     db.refresh(tag)
     reload_supervisor(request, db)
     return tag

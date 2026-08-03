@@ -82,6 +82,43 @@ _FIXED_TYPE_WIDTHS = {
 _STRING_BUFFER_WIDTH = 256
 
 
+def _default_tcp_probe(
+    ip: str, timeout: float = CONNECT_TIMEOUT_S, port: int = _S7_TCP_PORT
+) -> None:
+    """Bare TCP-level reachability check: open and immediately close a
+    plain socket to ``(ip, port)`` (102 = ISO-on-TCP, the S7 port),
+    bounded by ``timeout`` seconds. Raises (``socket.timeout``/``OSError``)
+    on failure. Used both as ``PLCWorker``'s default pre-connect ``probe``
+    (called positionally as ``probe(ip, timeout)``, see ``Probe`` alias
+    above) and, standalone, by any other caller wanting a fast, bounded
+    "is anything even listening" check ahead of a slower S7-level connect
+    (e.g. ``app.plc.probe``'s ad-hoc admin "test this address" endpoint).
+    """
+    with socket.create_connection((ip, port), timeout=timeout):
+        pass
+
+
+def _tighten_read_timeout(client: Any, timeout_s: float = READ_TIMEOUT_S) -> None:
+    """Best-effort, module-level: lowers the snap7 client's own low-level
+    receive timeout (snap7's library default is far longer than
+    acceptable for an ad-hoc admin probe) so a read against an
+    unresponsive-but-connected PLC fails within ``timeout_s`` seconds
+    instead of hanging. Wrapped in try/except — not every snap7 client
+    build necessarily supports every ``Parameter``, and failing to
+    tighten the timeout must never be fatal to the read itself. Used by
+    ``app.plc.probe``'s one-off reads; ``PLCWorker``'s own long-lived
+    polling connection uses the more thorough ``PLCWorker._tighten_read_timeout``
+    method below instead, which also falls back to a socket-level timeout
+    for builds that don't expose ``set_param`` at all.
+    """
+    try:
+        from snap7.type import Parameter
+
+        client.set_param(Parameter.RecvTimeout, int(timeout_s * 1000))
+    except Exception:
+        pass
+
+
 def _tag_width(tag: dict) -> int:
     """Bytes needed from `tag['offset']` to safely decode this tag —
     used to size the single db_read() covering every tag in a DB block.
@@ -101,18 +138,6 @@ def _default_client_factory() -> Any:
     import snap7.client
 
     return snap7.client.Client()
-
-
-def _default_tcp_probe(ip: str, timeout: float) -> None:
-    """Bare TCP connect to the S7 ISO-TCP port with a short, explicit
-    timeout — fails fast on an unreachable/blackholed host before ever
-    touching snap7's own much longer internal connect timeout (see module
-    docstring, HIGH #B1). Raises (OSError/socket.timeout) on failure;
-    the caller (``_connect_if_needed``) lets that propagate to the
-    existing run_once() error handling.
-    """
-    sock = socket.create_connection((ip, _S7_TCP_PORT), timeout=timeout)
-    sock.close()
 
 
 class PLCWorker(threading.Thread):

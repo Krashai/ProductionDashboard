@@ -53,6 +53,17 @@ class Plc(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
+    # Defense-in-depth (VariableAssignmentWizard.md decision #9): metric_id
+    # already has its own global unique constraint below, but the
+    # diagnostic-tag path (and the old raw admin form) can create two tags
+    # on the same PLC sharing a `name` — the field the aggregator/LiveStore
+    # actually key live values by (see app.plc.aggregator) — with no
+    # metric_id collision at all. Without this, the second tag's poll
+    # cycle would silently overwrite the first tag's value under the same
+    # name.
+    __table_args__ = (
+        UniqueConstraint("plc_id", "name", name="uq_tags_plc_id_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     plc_id: Mapped[int] = mapped_column(
