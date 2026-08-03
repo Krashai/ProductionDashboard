@@ -10,13 +10,19 @@ decouples 8 independent OS poll threads from the event loop and from
 each other, and makes the worker trivially testable via `run_once()`
 without needing a running asyncio loop at all.
 """
+import socket
 from unittest.mock import MagicMock
 
 import pytest
 from snap7.util import set_bool, set_int, set_real, set_string
 
 from app.plc.live_store import LiveStore
-from app.plc.worker import PLCWorker, _STRING_BUFFER_WIDTH
+from app.plc.worker import (
+    PLCWorker,
+    _STRING_BUFFER_WIDTH,
+    _default_tcp_probe,
+    _tighten_read_timeout,
+)
 
 
 def _plc_config(**overrides):
@@ -250,3 +256,49 @@ def test_run_once_decodes_string_tag_alongside_other_tags_in_same_db():
     values = live_store.snapshot()[1]["tag_values"]
     assert values["Batch_Name"] == "LOT-42"
     assert values["Temp"] == pytest.approx(7.5)
+
+
+# --- Ad-hoc probe timeout helpers (app.plc.probe reuses these) -----------
+# PLCWorker's own long-lived polling connection never calls these itself
+# (see their docstrings) — they're standalone utilities, exercised here
+# directly rather than through a full poll cycle.
+
+def test_default_tcp_probe_succeeds_against_a_listening_socket():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        _default_tcp_probe("127.0.0.1", port=port, timeout=1.0)  # must not raise
+    finally:
+        server.close()
+
+
+def test_default_tcp_probe_raises_when_nothing_is_listening():
+    # Bind-then-immediately-close a socket to reserve a port that is
+    # guaranteed to have nothing listening on it, so the connect fails
+    # fast (connection refused) instead of relying on a slow OS timeout.
+    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe_socket.bind(("127.0.0.1", 0))
+    port = probe_socket.getsockname()[1]
+    probe_socket.close()
+
+    with pytest.raises(OSError):
+        _default_tcp_probe("127.0.0.1", port=port, timeout=1.0)
+
+
+def test_tighten_read_timeout_sets_recv_timeout_param_in_milliseconds():
+    from snap7.type import Parameter
+
+    mock_client = MagicMock()
+
+    _tighten_read_timeout(mock_client, timeout_s=2.5)
+
+    mock_client.set_param.assert_called_once_with(Parameter.RecvTimeout, 2500)
+
+
+def test_tighten_read_timeout_swallows_exceptions_from_set_param():
+    mock_client = MagicMock()
+    mock_client.set_param.side_effect = RuntimeError("param not supported")
+
+    _tighten_read_timeout(mock_client)  # must not raise

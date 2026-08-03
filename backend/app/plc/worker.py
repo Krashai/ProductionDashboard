@@ -51,6 +51,50 @@ _FIXED_TYPE_WIDTHS = {
 # across 8 PLCs).
 _STRING_BUFFER_WIDTH = 256
 
+# --- Timeouts for short-lived, ad-hoc PLC connections (app.plc.probe) ---
+# PLCWorker's own long-lived polling connection deliberately does NOT use
+# these: a worker that already has a connection to a known-good PLC would
+# rather tolerate a slow/flaky cycle and retry than abandon it after a few
+# seconds. A one-off admin "test this address before saving it" probe is
+# exactly the opposite case — failing fast matters far more there than
+# tolerating a slow link, since an operator is watching and waiting.
+CONNECT_TIMEOUT_S = 3.0
+READ_TIMEOUT_S = 3.0
+
+
+def _default_tcp_probe(ip: str, port: int = 102, timeout: float = CONNECT_TIMEOUT_S) -> None:
+    """Bare TCP-level reachability check: open and immediately close a
+    plain socket to ``(ip, port)`` (102 = ISO-on-TCP, the S7 port),
+    bounded by ``timeout`` seconds. Raises (``socket.timeout``/``OSError``)
+    on failure. A standalone utility, not wired into PLCWorker's own
+    connect path or into app.plc.probe's default flow (which only needs a
+    mocked snap7 client in unit tests, never a real socket) — kept here,
+    next to the timeout constants it shares, for any caller that wants a
+    fast, bounded "is anything even listening" check ahead of a slower
+    S7-level connect.
+    """
+    import socket
+
+    with socket.create_connection((ip, port), timeout=timeout):
+        pass
+
+
+def _tighten_read_timeout(client: Any, timeout_s: float = READ_TIMEOUT_S) -> None:
+    """Best-effort: lowers the snap7 client's own low-level receive
+    timeout (snap7's library default is far longer than acceptable for an
+    ad-hoc admin probe) so a read against an unresponsive-but-connected
+    PLC fails within ``timeout_s`` seconds instead of hanging. Wrapped in
+    try/except — not every snap7 client/build necessarily supports every
+    ``Parameter``, and failing to tighten the timeout must never be fatal
+    to the read itself.
+    """
+    try:
+        from snap7.type import Parameter
+
+        client.set_param(Parameter.RecvTimeout, int(timeout_s * 1000))
+    except Exception:
+        pass
+
 
 def _tag_width(tag: dict) -> int:
     """Bytes needed from `tag['offset']` to safely decode this tag —

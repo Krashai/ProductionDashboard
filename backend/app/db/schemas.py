@@ -28,6 +28,18 @@ from app.domain.areas import AREA_IDS
 from app.plc.decode import SUPPORTED_TAG_TYPES
 
 
+def _validate_supported_tag_type(value: str) -> str:
+    """Shared by TagBase.type and ProbeRequest.type so the two validators
+    can never silently drift apart — a probe must accept exactly the set
+    of types a real Tag could ever be saved with, no more, no less."""
+    upper = value.upper()
+    if upper not in SUPPORTED_TAG_TYPES:
+        raise ValueError(
+            f"type must be one of {sorted(SUPPORTED_TAG_TYPES)}, got {value!r}"
+        )
+    return upper
+
+
 class PlcBase(BaseModel):
     name: str = Field(min_length=1)
     area_id: str
@@ -75,12 +87,7 @@ class TagBase(BaseModel):
     @field_validator("type")
     @classmethod
     def _type_must_be_supported(cls, value: str) -> str:
-        upper = value.upper()
-        if upper not in SUPPORTED_TAG_TYPES:
-            raise ValueError(
-                f"type must be one of {sorted(SUPPORTED_TAG_TYPES)}, got {value!r}"
-            )
-        return upper
+        return _validate_supported_tag_type(value)
 
 
 class TagCreate(TagBase):
@@ -145,3 +152,21 @@ class BitAlarmRuleRead(BitAlarmRuleBase):
     id: int
 
     model_config = {"from_attributes": True}
+
+
+class ProbeRequest(BaseModel):
+    """Body for POST /api/plcs/{plc_id}/probe (VariableAssignmentWizard.md
+    §5.1) — test-read an arbitrary address before committing it as a Tag.
+    Bounds mirror TagBase's db/offset/bit exactly (same S7 address space),
+    and `type` reuses the identical SUPPORTED_TAG_TYPES validator so a
+    probe can never accept a type a saved Tag would reject."""
+
+    db: int = Field(ge=0, le=65535)
+    offset: int = Field(ge=0, le=65535)
+    bit: int = Field(default=0, ge=0, le=7)
+    type: str
+
+    @field_validator("type")
+    @classmethod
+    def _type_must_be_supported(cls, value: str) -> str:
+        return _validate_supported_tag_type(value)

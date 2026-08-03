@@ -31,7 +31,7 @@ from app.db.database import Base, build_engine_and_sessionmaker
 from app.plc.broadcaster import broadcast_loop
 from app.plc.live_store import LiveStore
 from app.plc.supervisor import PollingSupervisor
-from app.plc.worker import PLCWorker
+from app.plc.worker import PLCWorker, _default_client_factory
 
 
 def create_app(
@@ -39,6 +39,7 @@ def create_app(
     worker_factory=PLCWorker,
     poll_interval: float = 1.0,
     admin_token: str | None = None,
+    probe_client_factory=_default_client_factory,
 ) -> FastAPI:
     """Build one fully-wired app instance.
 
@@ -48,6 +49,13 @@ def create_app(
     (production/Docker). There is deliberately no hardcoded fallback —
     if neither is set, this raises immediately rather than silently
     running with an open write API.
+
+    ``probe_client_factory`` builds the short-lived snap7 client used by
+    POST /api/plcs/{plc_id}/probe (see app.plc.probe) — separate from
+    ``worker_factory``/``PollingSupervisor`` on purpose, since a probe
+    must never touch an already-running PLCWorker's connection. Defaults
+    to the same lazy real-snap7 factory PLCWorker uses; tests override it
+    to inject a MagicMock.
     """
     admin_token = admin_token or os.getenv("ADMIN_API_TOKEN")
     if not admin_token:
@@ -96,6 +104,7 @@ def create_app(
     app.state.live_store = live_store
     app.state.ws_manager = ws_manager
     app.state.admin_token = admin_token
+    app.state.probe_client_factory = probe_client_factory
 
     app.include_router(plcs_router)
     app.include_router(tags_router)

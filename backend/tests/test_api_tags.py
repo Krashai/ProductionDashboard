@@ -112,6 +112,63 @@ def test_delete_tag(client):
     assert client.get(f"/api/tags/{tag['id']}").status_code == 404
 
 
+def test_create_tag_rejects_duplicate_name_on_same_plc(client):
+    """VariableAssignmentWizard.md §5.2 — UniqueConstraint(plc_id, name).
+    Same plc_id + name but a *different* metric_id must still 409, worded
+    distinctly from the metric_id-conflict case."""
+    plc = _plc(client)
+    client.post("/api/tags", json=_tag_payload(plc["id"], name="Temp", metric_id="chlodnia-1-temp"))
+
+    resp = client.post(
+        "/api/tags",
+        json=_tag_payload(
+            plc["id"], name="Temp", db=1, offset=4, metric_id="chlodnia-1-faults"
+        ),
+    )
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "Temp" in detail
+    assert "PLC" in detail
+    assert "metric_id" not in detail
+
+
+def test_create_tag_allows_same_name_on_different_plcs(client):
+    """The (plc_id, name) constraint is per-PLC, not global — the same
+    `name` on two different PLCs must both succeed."""
+    plc_a = _plc(client, name="Chłodnia 1", area_id="chlodnia-1")
+    plc_b = _plc(client, name="Chłodnia 2", area_id="chlodnia-2")
+
+    resp_a = client.post(
+        "/api/tags",
+        json=_tag_payload(plc_a["id"], name="Temp", metric_id="chlodnia-1-temp"),
+    )
+    resp_b = client.post(
+        "/api/tags",
+        json=_tag_payload(plc_b["id"], name="Temp", metric_id="chlodnia-2-temp"),
+    )
+
+    assert resp_a.status_code == 201
+    assert resp_b.status_code == 201
+
+
+def test_update_tag_rejects_duplicate_name_on_same_plc(client):
+    plc = _plc(client)
+    client.post("/api/tags", json=_tag_payload(plc["id"], name="Temp", metric_id="chlodnia-1-temp"))
+    other = client.post(
+        "/api/tags",
+        json=_tag_payload(plc["id"], name="Pressure", db=1, offset=4, metric_id="chlodnia-1-faults"),
+    ).json()
+
+    resp = client.put(
+        f"/api/tags/{other['id']}",
+        json=_tag_payload(plc["id"], name="Temp", metric_id="chlodnia-1-faults"),
+    )
+
+    assert resp.status_code == 409
+    assert "metric_id" not in resp.json()["detail"]
+
+
 def test_delete_tag_cascades_threshold_rule(client):
     plc = _plc(client)
     tag = client.post("/api/tags", json=_tag_payload(plc["id"])).json()

@@ -59,6 +59,17 @@ def get_ws_manager(request: Request):
     return request.app.state.ws_manager
 
 
+def get_probe_client_factory(request: Request):
+    """The snap7 client factory used by POST /api/plcs/{plc_id}/probe
+    (see app.plc.probe). Pulled off app.state, like every other
+    swappable dependency here, so tests can inject a MagicMock-returning
+    factory via ``create_app(probe_client_factory=...)`` without any
+    monkeypatching — and so a probe request never shares or contends with
+    the supervisor's own per-PLC worker connections.
+    """
+    return request.app.state.probe_client_factory
+
+
 def reload_supervisor(request: Request, db: Session) -> None:
     """Re-reads Plc/Tag config and reconciles running PLCWorker threads.
     Call after every CRUD write that could affect polling (Plc/Tag
