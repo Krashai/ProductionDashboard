@@ -122,3 +122,60 @@ def test_delete_tag_cascades_threshold_rule(client):
     client.delete(f"/api/tags/{tag['id']}")
 
     assert client.get(f"/api/thresholds/{rule['id']}").status_code == 404
+
+
+# --- MEDIUM #B2: a CRUD write must not 500 just because the post-commit
+# PollingSupervisor.reload() side effect failed — the DB write already
+# committed successfully by that point.
+
+def test_create_tag_still_returns_201_and_persists_when_supervisor_reload_raises(client, app):
+    plc = _plc(client)
+    app.state.supervisor.reload = lambda *a, **kw: (_ for _ in ()).throw(
+        RuntimeError("worker_factory exploded")
+    )
+
+    resp = client.post("/api/tags", json=_tag_payload(plc["id"]))
+
+    assert resp.status_code == 201
+    tag_id = resp.json()["id"]
+    assert client.get(f"/api/tags/{tag_id}").status_code == 200
+
+
+def test_update_tag_still_returns_200_and_persists_when_supervisor_reload_raises(client, app):
+    plc = _plc(client)
+    tag = client.post("/api/tags", json=_tag_payload(plc["id"])).json()
+    app.state.supervisor.reload = lambda *a, **kw: (_ for _ in ()).throw(
+        RuntimeError("worker_factory exploded")
+    )
+
+    resp = client.put(f"/api/tags/{tag['id']}", json=_tag_payload(plc["id"], label="Renamed"))
+
+    assert resp.status_code == 200
+    assert client.get(f"/api/tags/{tag['id']}").json()["label"] == "Renamed"
+
+
+def test_delete_tag_still_returns_204_and_persists_when_supervisor_reload_raises(client, app):
+    plc = _plc(client)
+    tag = client.post("/api/tags", json=_tag_payload(plc["id"])).json()
+    app.state.supervisor.reload = lambda *a, **kw: (_ for _ in ()).throw(
+        RuntimeError("worker_factory exploded")
+    )
+
+    resp = client.delete(f"/api/tags/{tag['id']}")
+
+    assert resp.status_code == 204
+    assert client.get(f"/api/tags/{tag['id']}").status_code == 404
+
+
+# --- HIGH #B3/B5: db/offset must be within S7's real addressable bounds.
+
+def test_create_tag_rejects_db_above_bounds(client):
+    plc = _plc(client)
+    resp = client.post("/api/tags", json=_tag_payload(plc["id"], db=70000))
+    assert resp.status_code == 422
+
+
+def test_create_tag_rejects_negative_offset(client):
+    plc = _plc(client)
+    resp = client.post("/api/tags", json=_tag_payload(plc["id"], offset=-1))
+    assert resp.status_code == 422

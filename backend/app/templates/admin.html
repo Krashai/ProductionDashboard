@@ -19,10 +19,14 @@
     .status-ok { color: #22c55e; }
     .status-bad { color: #ef4444; }
     .hint { color: #94a3b8; font-size: .8rem; }
+    header.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
   </style>
 </head>
 <body>
-  <h1>ProductionDashboard — Panel administracyjny PLC</h1>
+  <header class="page-header">
+    <h1>ProductionDashboard — Panel administracyjny PLC</h1>
+    <button type="button" id="logout-btn" class="danger">Wyloguj</button>
+  </header>
   <p class="hint">
     Konfiguracja sterowników S7, tagów, progów alarmowych i alarmów bitowych.
     Zmiany są stosowane natychmiast (hot-reload) — bez restartu procesu.
@@ -110,19 +114,28 @@
     // The backend requires X-Admin-Token on every POST/PUT/DELETE to
     // /api/* (GET and /ws stay open — read-only, internal network). This
     // panel is the only current write client, so it asks for the token
-    // once and keeps it in localStorage for subsequent visits/requests.
+    // once and keeps it in sessionStorage (LOW #B6: cleared when the
+    // tab/browser session ends, rather than persisting indefinitely on
+    // shared/kiosk machines) for the remainder of this tab's session.
+    // The "Wyloguj" button lets an operator clear it explicitly before
+    // that.
     function getAdminToken() {
-      let token = localStorage.getItem("adminToken");
+      let token = sessionStorage.getItem("adminToken");
       if (!token) {
         token = window.prompt("Token administratora (X-Admin-Token):") || "";
-        localStorage.setItem("adminToken", token);
+        sessionStorage.setItem("adminToken", token);
       }
       return token;
     }
 
     function clearAdminToken() {
-      localStorage.removeItem("adminToken");
+      sessionStorage.removeItem("adminToken");
     }
+
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      clearAdminToken();
+      location.reload();
+    });
 
     async function fetchJson(url, options = {}) {
       const method = (options.method || "GET").toUpperCase();

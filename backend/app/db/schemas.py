@@ -22,6 +22,8 @@ PUT semantics are deliberately NOT uniform across entities:
 """
 from __future__ import annotations
 
+import ipaddress
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.domain.areas import AREA_IDS
@@ -32,8 +34,13 @@ class PlcBase(BaseModel):
     name: str = Field(min_length=1)
     area_id: str
     ip: str = Field(min_length=1)
-    rack: int = 0
-    slot: int = 1
+    # HIGH #B3: S7 rack/slot are small physical-addressing fields on real
+    # hardware (racks 0-7, slots 0-31 on any S7-300/400/1200/1500) — bounds
+    # checked here so a wildly out-of-range value fails fast at the API
+    # boundary with a 422 rather than being silently passed through to
+    # snap7.Client.connect().
+    rack: int = Field(default=0, ge=0, le=7)
+    slot: int = Field(default=1, ge=0, le=31)
     plc_type: str = Field(min_length=1)
 
     @field_validator("area_id")
@@ -44,6 +51,21 @@ class PlcBase(BaseModel):
                 f"area_id must be one of {sorted(AREA_IDS)}, got {value!r}"
             )
         return value
+
+    @field_validator("ip")
+    @classmethod
+    def _ip_must_be_a_valid_address(cls, value: str) -> str:
+        """HIGH #B3: reject anything that isn't a syntactically valid
+        IPv4/IPv6 address — an unvalidated string here would otherwise
+        flow straight into ``snap7.Client.connect()`` (see app.plc.worker),
+        so e.g. shell-metacharacter-laden strings or empty values must
+        never reach that far."""
+        candidate = value.strip()
+        try:
+            ipaddress.ip_address(candidate)
+        except ValueError as exc:
+            raise ValueError(f"ip must be a valid IPv4 or IPv6 address: {exc}") from exc
+        return candidate
 
 
 class PlcCreate(PlcBase):
@@ -63,14 +85,17 @@ class PlcRead(PlcBase):
 class TagBase(BaseModel):
     plc_id: int
     name: str = Field(min_length=1)
-    db: int = Field(ge=0)
-    offset: int = Field(ge=0)
+    # HIGH #B3: db/offset are S7 addressing fields — bounded to the
+    # protocol's real 16-bit address space so an out-of-range value fails
+    # fast with a 422 instead of being handed to snap7's db_read().
+    db: int = Field(ge=0, le=65535)
+    offset: int = Field(ge=0, le=65535)
     bit: int = Field(default=0, ge=0, le=7)
     type: str
     metric_id: str = Field(min_length=1)
     label: str = Field(min_length=1)
     unit: str = ""
-    decimals: int = Field(default=0, ge=0)
+    decimals: int = Field(default=0, ge=0, le=6)
 
     @field_validator("type")
     @classmethod

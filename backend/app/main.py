@@ -21,6 +21,7 @@ from app.api.admin import router as admin_router
 from app.api.areas import router as areas_router
 from app.api.bit_alarms import router as bit_alarms_router
 from app.api.plcs import router as plcs_router
+from app.api.rate_limit import FailedAuthLimiter
 from app.api.status import router as status_router
 from app.api.tags import router as tags_router
 from app.api.thresholds import router as thresholds_router
@@ -39,6 +40,7 @@ def create_app(
     worker_factory=PLCWorker,
     poll_interval: float = 1.0,
     admin_token: str | None = None,
+    auth_limiter: FailedAuthLimiter | None = None,
 ) -> FastAPI:
     """Build one fully-wired app instance.
 
@@ -48,6 +50,12 @@ def create_app(
     (production/Docker). There is deliberately no hardcoded fallback —
     if neither is set, this raises immediately rather than silently
     running with an open write API.
+
+    ``auth_limiter`` (HIGH #B4) is an optional pre-built
+    ``FailedAuthLimiter`` — mainly so tests can inject one constructed
+    with a fake ``now`` callable to control the sliding window
+    deterministically. Defaults to a fresh ``FailedAuthLimiter()`` (real
+    wall-clock, process-lifetime state) when not given.
     """
     admin_token = admin_token or os.getenv("ADMIN_API_TOKEN")
     if not admin_token:
@@ -96,6 +104,7 @@ def create_app(
     app.state.live_store = live_store
     app.state.ws_manager = ws_manager
     app.state.admin_token = admin_token
+    app.state.auth_limiter = auth_limiter or FailedAuthLimiter()
 
     app.include_router(plcs_router)
     app.include_router(tags_router)

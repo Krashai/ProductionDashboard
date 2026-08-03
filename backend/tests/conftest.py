@@ -63,6 +63,12 @@ class NoopWorker:
     def join(self, timeout=None):
         pass
 
+    def is_alive(self):
+        # HIGH #B1: PollingSupervisor._stop_worker checks is_alive() after
+        # join() to detect a worker that failed to actually stop. This
+        # no-op double always "died" cleanly.
+        return False
+
 
 TEST_ADMIN_TOKEN = "test-admin-token-do-not-use-in-prod"
 

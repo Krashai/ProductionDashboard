@@ -6,10 +6,13 @@ supervisor/worker_factory, own LiveStore) without any monkeypatching.
 from __future__ import annotations
 
 import hmac
+import logging
 from collections.abc import Iterator
 
 from fastapi import Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 async def require_admin_token(
@@ -29,13 +32,36 @@ async def require_admin_token(
     which `app.main.create_app()` populates from the `ADMIN_API_TOKEN`
     env var (or an explicit constructor arg in tests) — never a
     hardcoded default, see create_app's docstring.
+
+    HIGH #B4: repeated *failed* attempts from the same client are rate
+    limited (see app.api.rate_limit.FailedAuthLimiter, wired onto
+    ``app.state.auth_limiter``) to blunt naive token-guessing. The correct
+    token always succeeds and resets that client's failure count — rate
+    limiting only ever kicks in on the invalid-token path, so it can
+    never itself lock out the legitimate token holder. A blocked client
+    sending yet another invalid token gets 429 (not 401) with a
+    Retry-After header instead of a further recorded failure.
     """
+    limiter = request.app.state.auth_limiter
+    client_key = request.client.host if request.client else "unknown"
+
     expected = request.app.state.admin_token
-    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+    if x_admin_token and hmac.compare_digest(x_admin_token, expected):
+        limiter.reset(client_key)
+        return
+
+    if limiter.is_blocked(client_key):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid X-Admin-Token header",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed admin-token attempts — try again later",
+            headers={"Retry-After": str(int(limiter.window_s))},
         )
+
+    limiter.record_failure(client_key)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing or invalid X-Admin-Token header",
+    )
 
 
 def get_db(request: Request) -> Iterator[Session]:
@@ -65,8 +91,26 @@ def reload_supervisor(request: Request, db: Session) -> None:
     create/update/delete). ThresholdRule/BitAlarmRule writes do NOT need
     this — see app.plc.broadcaster docstring, alarm evaluation re-reads
     the DB every broadcast tick regardless.
+
+    MEDIUM #B2: the CRUD write itself has already been committed to the
+    DB by the time this runs — a failure here (e.g. a worker_factory that
+    raises while spinning up a new PLCWorker) must not turn into a 500
+    for a request that otherwise succeeded and whose data is already
+    durable. Any exception is caught, logged with a full traceback, and
+    reflected only as a generic health flag on app.state — never
+    re-raised.
     """
     from app.db.config_loader import load_plcs, load_tags
 
     supervisor = get_supervisor(request)
-    supervisor.reload(load_plcs(db), load_tags(db))
+    try:
+        supervisor.reload(load_plcs(db), load_tags(db))
+    except Exception:
+        logger.exception(
+            "reload_supervisor: PollingSupervisor.reload() failed after a "
+            "successful DB write — config was committed, but polling "
+            "threads may be out of sync with it"
+        )
+        request.app.state.supervisor_healthy = False
+    else:
+        request.app.state.supervisor_healthy = True

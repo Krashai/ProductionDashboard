@@ -33,6 +33,7 @@ the same lock.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from typing import Callable
 
@@ -40,6 +41,8 @@ from app.plc.live_store import LiveStore
 from app.plc.worker import PLCWorker
 
 WorkerFactory = Callable[..., PLCWorker]
+
+logger = logging.getLogger(__name__)
 
 
 def _config_fingerprint(plc: dict, tags: list[dict]) -> str:
@@ -62,6 +65,12 @@ class PollingSupervisor:
         self._lock = threading.RLock()
         self._workers: dict[int, PLCWorker] = {}
         self._fingerprints: dict[int, str] = {}
+        # HIGH #B1: populated by _stop_worker when a worker's join(timeout)
+        # returns while the thread is still alive — i.e. stop() didn't
+        # actually manage to bring it down in time. Kept so callers/ops
+        # tooling can introspect which PLC ids currently have a
+        # potentially-leaked worker thread still running unmanaged.
+        self._orphaned_worker_ids: set[int] = set()
 
     @property
     def active_plc_ids(self) -> set[int]:
@@ -116,6 +125,20 @@ class PollingSupervisor:
             if worker is not None:
                 worker.stop()
                 worker.join(timeout=6.0)
+                if worker.is_alive():
+                    # HIGH #B1: join() timed out and the thread is still
+                    # running — stop() did not actually succeed. Don't
+                    # silently proceed as if it had: log loudly and record
+                    # the id so it stays introspectable rather than just
+                    # vanishing from self._workers as if cleanly stopped.
+                    logger.error(
+                        "PLCWorker for plc_id=%s (thread name=%r) did not "
+                        "stop within the join timeout — worker thread may "
+                        "be leaked/orphaned",
+                        plc_id,
+                        worker.name,
+                    )
+                    self._orphaned_worker_ids.add(plc_id)
             self.live_store.remove_plc(plc_id)
 
     def shutdown(self) -> None:

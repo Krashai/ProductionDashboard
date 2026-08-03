@@ -3,6 +3,7 @@
 /ws stay open (NewBackendPlan.md decision #9 only ever covered /ws).
 """
 import pytest
+from fastapi.testclient import TestClient
 
 from tests.conftest import TEST_ADMIN_TOKEN
 
@@ -210,3 +211,70 @@ def test_create_app_without_admin_token_anywhere_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ADMIN_API_TOKEN"):
         create_app(database_url="sqlite:///:memory:")
+
+
+# --- HIGH #B4: repeated failed admin-token attempts are rate limited ------
+
+def test_sixth_consecutive_bad_token_post_returns_429_with_retry_after(anon_client):
+    for _ in range(5):
+        resp = anon_client.post(
+            "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+        )
+        assert resp.status_code == 401
+
+    resp = anon_client.post(
+        "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+    )
+
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+
+
+def test_valid_token_right_after_five_failures_still_succeeds_and_clears_count(anon_client):
+    for _ in range(5):
+        resp = anon_client.post(
+            "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+        )
+        assert resp.status_code == 401
+
+    ok_resp = anon_client.post(
+        "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": TEST_ADMIN_TOKEN}
+    )
+    assert ok_resp.status_code == 201
+
+    # a successful auth resets the failure count, so this client isn't
+    # still sitting one bad attempt away from being blocked
+    for _ in range(4):
+        resp = anon_client.post(
+            "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+        )
+        assert resp.status_code == 401
+
+
+def test_get_and_ws_routes_are_unaffected_by_any_number_of_failed_post_attempts(anon_client):
+    for _ in range(20):
+        anon_client.post("/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"})
+
+    assert anon_client.get("/api/plcs").status_code == 200
+    assert anon_client.get("/status").status_code == 200
+    with anon_client.websocket_connect("/ws"):
+        pass
+
+
+def test_a_different_client_is_unaffected_by_another_clients_failures(app):
+    blocked_client = TestClient(app, client=("10.10.10.10", 12345))
+    other_client = TestClient(app, client=("10.10.10.20", 54321))
+
+    with blocked_client as blocked, other_client as other:
+        for _ in range(6):
+            blocked.post(
+                "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+            )
+        assert blocked.post(
+            "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+        ).status_code == 429
+
+        resp = other.post(
+            "/api/plcs", json=_plc_payload(), headers={"X-Admin-Token": "wrong"}
+        )
+        assert resp.status_code == 401  # not 429 — a fresh client, own counter

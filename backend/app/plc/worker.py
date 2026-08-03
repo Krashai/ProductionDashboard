@@ -18,18 +18,48 @@ two structural differences:
    payload. This avoids 8 threads racing to schedule coroutines on the
    loop and keeps broadcast cadence decoupled from each PLC's own poll
    timing/latency.
+
+Timeouts (HIGH #B1): ``python-snap7==3.1.0`` is a pure-Python rewrite.
+``Client.connect()`` hardcodes a 5s ISO-TCP timeout via
+``socket.settimeout``, and its internal ISO-connect step can block for a
+further ~5s — up to ~10s worst case against an unreachable or
+blackholed host, longer than ``supervisor.py``'s ``join(timeout=6.0)``,
+which is how a stuck connect attempt could leak a worker thread past
+``stop()``. To fail fast, ``_connect_if_needed`` runs a bare TCP probe
+(``probe``, injectable for tests) against port 102 with a short
+``CONNECT_TIMEOUT_S`` *before* ever calling ``client.connect()`` — an
+unreachable host now fails in ~2s instead of ~10s. After a successful
+connect, ``_tighten_read_timeout`` best-effort tightens the read timeout
+too (``READ_TIMEOUT_S``), since different python-snap7 builds expose
+different internals for this and it must never raise if the attribute
+path isn't present on the installed version.
 """
 from __future__ import annotations
 
+import logging
+import socket
 import threading
 import time
-import traceback
 from typing import Any, Callable
 
 from app.plc.decode import decode_tag_value
 from app.plc.live_store import LiveStore
 
 ClientFactory = Callable[[], Any]
+Probe = Callable[[str, float], None]
+
+logger = logging.getLogger(__name__)
+
+# HIGH #B1: fail fast on an unreachable/blackholed PLC host rather than
+# waiting on snap7's own much longer internal timeouts (see module
+# docstring). CONNECT_TIMEOUT_S bounds the pre-connect TCP probe;
+# READ_TIMEOUT_S is applied (best-effort) to the connection after a
+# successful connect so a PLC that stops responding mid-session doesn't
+# block a read for as long as snap7's own default would.
+CONNECT_TIMEOUT_S = 2.0
+READ_TIMEOUT_S = 3.0
+
+_S7_TCP_PORT = 102
 
 _FIXED_TYPE_WIDTHS = {
     "BOOL": 1,
@@ -73,6 +103,18 @@ def _default_client_factory() -> Any:
     return snap7.client.Client()
 
 
+def _default_tcp_probe(ip: str, timeout: float) -> None:
+    """Bare TCP connect to the S7 ISO-TCP port with a short, explicit
+    timeout — fails fast on an unreachable/blackholed host before ever
+    touching snap7's own much longer internal connect timeout (see module
+    docstring, HIGH #B1). Raises (OSError/socket.timeout) on failure;
+    the caller (``_connect_if_needed``) lets that propagate to the
+    existing run_once() error handling.
+    """
+    sock = socket.create_connection((ip, _S7_TCP_PORT), timeout=timeout)
+    sock.close()
+
+
 class PLCWorker(threading.Thread):
     def __init__(
         self,
@@ -81,19 +123,44 @@ class PLCWorker(threading.Thread):
         live_store: LiveStore,
         client_factory: ClientFactory = _default_client_factory,
         poll_interval: float = 1.0,
+        probe: Probe = _default_tcp_probe,
     ) -> None:
         super().__init__(daemon=True, name=f"plc-worker-{plc['id']}")
         self.plc = plc
         self.tags = tags
         self.live_store = live_store
         self.poll_interval = poll_interval
+        self.probe = probe
         self.running = True
         self.client = client_factory()
 
     def _connect_if_needed(self) -> None:
         if self.client.get_connected():
             return
+        self.probe(self.plc["ip"], CONNECT_TIMEOUT_S)
         self.client.connect(self.plc["ip"], self.plc["rack"], self.plc["slot"])
+        self._tighten_read_timeout()
+
+    def _tighten_read_timeout(self) -> None:
+        """Best-effort only — never allowed to raise. Different
+        python-snap7 builds expose different internals for adjusting the
+        post-connect read timeout (some via ``Client.set_param``, some
+        only reachable through ``Client.connection``'s underlying
+        socket); each attempt is independently guarded since the
+        installed version may expose neither, either, or both.
+        """
+        try:
+            import snap7.type as snap7_type
+
+            self.client.set_param(
+                snap7_type.Parameter.RecvTimeout, int(READ_TIMEOUT_S * 1000)
+            )
+        except (AttributeError, Exception):
+            pass
+        try:
+            self.client.connection.socket.settimeout(READ_TIMEOUT_S)
+        except (AttributeError, Exception):
+            pass
 
     def _tags_by_db(self) -> dict[int, list[dict]]:
         grouped: dict[int, list[dict]] = {}
@@ -111,14 +178,16 @@ class PLCWorker(threading.Thread):
                     value = decode_tag_value(
                         raw, tag["offset"], tag["type"], tag.get("bit", 0)
                     )
-                except Exception as exc:
+                except Exception:
                     # One misconfigured tag (bad offset/type) must not
                     # take the rest of the cycle's valid tags down with
                     # it — log with full context and keep going.
-                    print(
-                        f"PLCWorker {self.plc['id']}: decode error for tag "
-                        f"{tag['name']!r} (type={tag['type']!r} offset={tag['offset']}): {exc}",
-                        flush=True,
+                    logger.exception(
+                        "PLCWorker %s: decode error for tag %r (type=%r offset=%s)",
+                        self.plc["id"],
+                        tag["name"],
+                        tag["type"],
+                        tag["offset"],
                     )
                     continue
                 values[tag["name"]] = value
@@ -129,31 +198,52 @@ class PLCWorker(threading.Thread):
         any failure is caught, logged, and reflected as an offline
         LiveStore entry, so the owning thread (daemon) can never die
         silently (the gateway's worker.py had exactly this bug pre-fix).
+
+        MEDIUM #B3/B5: only a short, generic error code ever reaches
+        LiveStore (and therefore /status and /ws) — the real exception
+        (which could contain internal hostnames/paths) is logged via
+        ``logger.exception`` with full context instead.
+
+        HIGH #B1: every LiveStore write is guarded by ``self.running`` —
+        a thread that has already been told to stop() must never write
+        again, closing the race where a leaked/slow-to-stop worker keeps
+        publishing after the supervisor has moved on.
         """
         try:
             self._connect_if_needed()
-        except Exception as exc:
+        except Exception:
+            logger.exception(
+                "PLCWorker %s: connect failed (ip=%s)",
+                self.plc["id"],
+                self.plc.get("ip"),
+            )
+            if not self.running:
+                return
             self.live_store.update_plc(
-                plc_id=self.plc["id"], online=False, tag_values={}, error=str(exc)
+                plc_id=self.plc["id"], online=False, tag_values={}, error="connect_failed"
             )
             return
 
         try:
             values = self._read_all_tags()
-            self.live_store.update_plc(
-                plc_id=self.plc["id"], online=True, tag_values=values, error=None
-            )
-        except Exception as exc:
-            print(
-                f"PLCWorker {self.plc['id']}: read cycle failed: {exc}", flush=True
-            )
+        except Exception:
+            logger.exception("PLCWorker %s: read cycle failed", self.plc["id"])
             try:
                 self.client.disconnect()
             except Exception:
                 pass
+            if not self.running:
+                return
             self.live_store.update_plc(
-                plc_id=self.plc["id"], online=False, tag_values={}, error=str(exc)
+                plc_id=self.plc["id"], online=False, tag_values={}, error="read_failed"
             )
+            return
+
+        if not self.running:
+            return
+        self.live_store.update_plc(
+            plc_id=self.plc["id"], online=True, tag_values=values, error=None
+        )
 
     def run(self) -> None:
         while self.running:
@@ -163,7 +253,9 @@ class PLCWorker(threading.Thread):
             except Exception:
                 # Safety net: run_once already catches its own errors,
                 # this only guards against a bug in run_once itself.
-                traceback.print_exc()
+                logger.exception(
+                    "PLCWorker %s: unexpected error in run_once", self.plc["id"]
+                )
             elapsed = time.time() - start
             time.sleep(max(0.01, self.poll_interval - elapsed))
 

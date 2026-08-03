@@ -15,6 +15,11 @@ from app.plc.supervisor import PollingSupervisor
 class FakeWorker:
     instances: list["FakeWorker"] = []
 
+    # HIGH #B1: cleanly-stopping fakes (the vast majority of these tests)
+    # report themselves as no-longer-alive after join(), matching real
+    # threading.Thread.is_alive() semantics post-stop.
+    _is_alive_after_join = False
+
     def __init__(self, plc, tags, live_store, poll_interval=1.0):
         self.plc = plc
         self.tags = tags
@@ -22,6 +27,7 @@ class FakeWorker:
         self.poll_interval = poll_interval
         self.started = False
         self.stopped = False
+        self.name = f"fake-plc-worker-{plc.get('id')}"
         FakeWorker.instances.append(self)
 
     def start(self):
@@ -32,6 +38,18 @@ class FakeWorker:
 
     def join(self, timeout=None):
         pass
+
+    def is_alive(self):
+        return self._is_alive_after_join
+
+
+class NeverDyingWorker(FakeWorker):
+    """Simulates a worker whose thread never actually dies — e.g. the S7
+    connect/read call is stuck past the join(timeout) window (the exact
+    scenario HIGH #B1's probe/timeouts are meant to prevent, but the
+    supervisor must still not silently pretend the stop succeeded)."""
+
+    _is_alive_after_join = True
 
 
 def _factory(**kwargs):
@@ -174,3 +192,29 @@ def test_reload_is_thread_safe_under_concurrent_calls():
     for instance in FakeWorker.instances:
         if instance.started and instance not in tracked_current:
             assert instance.stopped, "worker was started, replaced, but never stopped (leak)"
+
+
+def test_stop_worker_logs_and_records_orphan_when_join_returns_but_thread_still_alive(caplog):
+    """HIGH #B1: worker.join(timeout=6.0) can return without the thread
+    actually having died (e.g. stuck inside a blocking S7 call). The
+    supervisor must not silently proceed as if stop() succeeded — it
+    should log an error (with plc_id + thread name) and record the id in
+    self._orphaned_worker_ids, while its own bookkeeping dicts
+    (_workers/_fingerprints) are still cleaned up as before."""
+    import logging
+
+    supervisor = PollingSupervisor(live_store=LiveStore(), worker_factory=NeverDyingWorker)
+
+    with caplog.at_level(logging.ERROR, logger="app.plc.supervisor"):
+        supervisor.reload([{"id": 1, "ip": "a"}], [])
+        worker = supervisor._workers[1]
+
+        supervisor.reload([], [])  # PLC removed -> triggers _stop_worker(1)
+
+    assert worker.stopped is True
+    assert 1 in supervisor._orphaned_worker_ids
+    assert supervisor.active_plc_ids == set()
+    assert 1 not in supervisor._workers
+    assert 1 not in supervisor._fingerprints
+    assert any("1" in record.getMessage() for record in caplog.records)
+    assert any(worker.name in record.getMessage() for record in caplog.records)

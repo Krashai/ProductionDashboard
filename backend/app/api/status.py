@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_live_store
@@ -17,7 +17,9 @@ router = APIRouter(tags=["status"])
 
 
 @router.get("/status")
-def get_status(db: Session = Depends(get_db), live_store=Depends(get_live_store)):
+def get_status(
+    request: Request, db: Session = Depends(get_db), live_store=Depends(get_live_store)
+):
     config = load_all(db)
     snapshot = live_store.snapshot()
 
@@ -49,4 +51,11 @@ def get_status(db: Session = Depends(get_db), live_store=Depends(get_live_store)
         "threshold_rules": config["threshold_rules"],
         "bit_alarm_rules": config["bit_alarm_rules"],
         "areas": areas,
+        # MEDIUM #B2: surfaces whether the last reload_supervisor() call
+        # (after a Plc/Tag CRUD write) succeeded — a CRUD write itself
+        # never 500s on a supervisor.reload() failure (see app.api.deps),
+        # so this is how an operator/monitoring can notice polling may be
+        # out of sync with the DB. Defaults to True (healthy) if no
+        # reload has ever failed/succeeded yet.
+        "supervisor_healthy": getattr(request.app.state, "supervisor_healthy", True),
     }
