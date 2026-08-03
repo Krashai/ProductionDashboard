@@ -20,6 +20,16 @@
     .status-bad { color: #ef4444; }
     .hint { color: #94a3b8; font-size: .8rem; }
     header.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .hidden { display: none; }
+    #wizard-section { border: 1px solid #2563eb; border-radius: 8px; padding: 1rem 1.25rem; background: #111c33; }
+    #wizard-section h2 { margin-top: 0; border-bottom-color: #2563eb; }
+    .wizard-step h3 { font-size: 1rem; margin: 0 0 .5rem; }
+    .wizard-step { margin-top: 1rem; }
+    .wizard-metric-option { display: flex; gap: .5rem; align-items: center; margin-bottom: .35rem; }
+    .wizard-metric-option input[type="radio"]:disabled + span { color: #64748b; }
+    .wizard-actions { display: flex; gap: .5rem; margin-top: .75rem; }
+    #wizard-address-preview { font-family: monospace; background: #1e293b; padding: .15rem .4rem; border-radius: 4px; }
+    #wizard-confirmation { font-weight: 600; margin-top: .5rem; }
   </style>
 </head>
 <body>
@@ -52,8 +62,104 @@
     </table>
   </section>
 
+  <section id="wizard-section">
+    <h2>Kreator: przypisz zmienną</h2>
+    <p class="hint">
+      Główna ścieżka podpinania nowej zmiennej PLC do karty metryki na dashboardzie:
+      od metryki, przez sterownik i adres, do opcjonalnego progu alarmowego.
+      Tagi bez karty metryki (np. słowa statusu/awarii widoczne tylko na pasku
+      alarmów) skonfigurujesz w sekcji „Zaawansowane / tag diagnostyczny” poniżej.
+    </p>
+    <p id="wizard-confirmation" class="hidden"></p>
+
+    <div class="wizard-step" id="wizard-step-1">
+      <h3>Krok 1: Obszar i metryka</h3>
+      <label>Obszar
+        <select id="wizard-area-select"></select>
+      </label>
+      <div id="wizard-metric-list"></div>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step1-next" disabled>Dalej</button>
+      </div>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-step-2">
+      <h3>Krok 2: Sterownik PLC</h3>
+      <label>PLC
+        <select id="wizard-plc-select" required></select>
+      </label>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step2-back">Wstecz</button>
+        <button type="button" id="wizard-step2-next">Dalej</button>
+      </div>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-step-3">
+      <h3>Krok 3: Typ i adres</h3>
+      <label>Typ
+        <select id="wizard-type-select"></select>
+      </label>
+      <label>DB <input id="wizard-db-input" type="number" value="1" min="0" /></label>
+      <label>Offset <input id="wizard-offset-input" type="number" value="0" min="0" /></label>
+      <label id="wizard-bit-label" class="hidden">Bit <input id="wizard-bit-input" type="number" value="0" min="0" max="7" /></label>
+      <p>Podgląd adresu: <code id="wizard-address-preview"></code></p>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step3-back">Wstecz</button>
+        <button type="button" id="wizard-step3-next">Dalej</button>
+      </div>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-step-4">
+      <h3>Krok 4: Testuj odczyt</h3>
+      <p class="hint">
+        Sterownik może być jeszcze offline (np. konfiguracja wyprzedzająca
+        fizyczne podłączenie) — to nie blokuje zapisania zmiennej.
+      </p>
+      <button type="button" id="wizard-probe-button">Testuj odczyt</button>
+      <p id="wizard-probe-result"></p>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step4-back">Wstecz</button>
+        <button type="button" id="wizard-step4-next">Dalej</button>
+      </div>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-step-5">
+      <h3>Krok 5: Próg alarmowy (opcjonalnie)</h3>
+      <label>
+        <input type="checkbox" id="wizard-threshold-checkbox" />
+        Ustaw próg alarmowy dla tej wartości
+      </label>
+      <div id="wizard-threshold-fields" class="hidden">
+        <label>Min <input id="wizard-threshold-min" type="number" step="any" /></label>
+        <label>Max <input id="wizard-threshold-max" type="number" step="any" /></label>
+      </div>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step5-back">Wstecz</button>
+        <button type="button" id="wizard-step5-next">Dalej</button>
+      </div>
+    </div>
+
+    <div class="wizard-step hidden" id="wizard-step-6">
+      <h3>Krok 6: Zapisz</h3>
+      <p id="wizard-summary"></p>
+      <div class="wizard-actions">
+        <button type="button" id="wizard-step6-back">Wstecz</button>
+        <button type="button" id="wizard-save-button">Zapisz</button>
+        <button type="button" id="wizard-retry-threshold-button" class="hidden">Spróbuj ponownie</button>
+      </div>
+      <p id="wizard-result"></p>
+    </div>
+  </section>
+
   <section>
-    <h2>Tagi</h2>
+    <h2>Zaawansowane / tag diagnostyczny</h2>
+    <p class="hint">
+      Formularz zaawansowany — surowe pola PLC/DB/offset/typ/metric_id.
+      Użyj go dla tagów bez karty metryki na dashboardzie (np. słowo
+      statusu/awarii widoczne tylko na pasku alarmów) albo do edycji
+      istniejącego tagu. Do podpinania nowej zmiennej z kartą metryki użyj
+      kreatora powyżej.
+    </p>
     <form class="inline" id="tag-form">
       <label>PLC <select name="plc_id" id="tag-plc-select" required></select></label>
       <label>Nazwa tagu <input name="name" required /></label>
@@ -236,6 +342,9 @@
       for (const a of AREAS) {
         for (const m of a.metrics) metricOptions.appendChild(makeOption(m.id, m.id));
       }
+
+      wizardRenderAreaOptions();
+      wizardRenderMetrics();
     }
 
     async function loadPlcs() {
@@ -250,6 +359,8 @@
       const select = document.getElementById("tag-plc-select");
       clearChildren(select);
       for (const p of PLCS) select.appendChild(makeOption(p.id, `${p.name} (${p.area_id})`));
+
+      wizardRenderPlcOptions();
     }
 
     async function loadTags() {
@@ -266,6 +377,8 @@
         clearChildren(select);
         for (const t of TAGS) select.appendChild(makeOption(t.id, `#${t.id} ${t.name} (${t.metric_id})`));
       }
+
+      wizardRenderMetrics();
     }
 
     async function loadThresholds() {
@@ -329,6 +442,450 @@
       await loadBitAlarms();
     }
 
+    // --- Kreator: przypisz zmienną (wizard) -------------------------------
+    // Single-page, 6-step wizard (§5.3 of VariableAssignmentWizard.md):
+    // area+metric -> PLC -> type+address -> live probe -> optional
+    // threshold -> save. Steps are plain <div class="wizard-step"> blocks
+    // shown/hidden via the "hidden" CSS class (no reloads, no framework).
+    // All rendering below follows the same textContent/DOM-property-only
+    // discipline as the rest of this file (no innerHTML).
+
+    const WIZARD_TAG_TYPES = ["REAL", "INT", "DINT", "BOOL", "STRING", "WORD", "BYTE"];
+    const WIZARD_STEP_COUNT = 6;
+
+    let wizardState = {
+      areaId: null,
+      metric: null, // { id, label, unit, decimals } from /api/areas
+      plcId: null,
+      type: "REAL",
+      db: 1,
+      offset: 0,
+      bit: 0,
+      thresholdEnabled: false,
+      thresholdMin: null,
+      thresholdMax: null,
+      lastTagId: null, // set once POST /api/tags succeeds, used by the
+                       // partial-success threshold retry path
+    };
+
+    function wizardGoToStep(stepNumber) {
+      for (let i = 1; i <= WIZARD_STEP_COUNT; i++) {
+        document.getElementById(`wizard-step-${i}`).classList.toggle("hidden", i !== stepNumber);
+      }
+    }
+
+    // Step 1 -----------------------------------------------------------
+    function wizardRenderAreaOptions() {
+      const select = document.getElementById("wizard-area-select");
+      clearChildren(select);
+      for (const a of AREAS) select.appendChild(makeOption(a.id, a.name));
+      if (!wizardState.areaId && AREAS.length > 0) {
+        wizardState.areaId = AREAS[0].id;
+      }
+      if (wizardState.areaId) select.value = wizardState.areaId;
+    }
+
+    function wizardSelectMetric(metric) {
+      wizardState.metric = metric;
+      document.getElementById("wizard-step1-next").disabled = false;
+    }
+
+    function wizardRenderMetrics() {
+      const container = document.getElementById("wizard-metric-list");
+      clearChildren(container);
+      const area = AREAS.find((a) => a.id === wizardState.areaId);
+      if (!area) return;
+
+      const usedMetricIds = new Set(TAGS.map((t) => t.metric_id));
+      let selectedStillAvailable = false;
+
+      for (const metric of area.metrics) {
+        const wrapper = document.createElement("label");
+        wrapper.className = "wizard-metric-option";
+
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "wizard-metric";
+        radio.value = metric.id;
+        const isUsed = usedMetricIds.has(metric.id);
+        radio.disabled = isUsed;
+        if (!isUsed && wizardState.metric && wizardState.metric.id === metric.id) {
+          radio.checked = true;
+          selectedStillAvailable = true;
+        }
+        radio.addEventListener("change", () => wizardSelectMetric(metric));
+        wrapper.appendChild(radio);
+
+        const text = document.createElement("span");
+        text.textContent = `${metric.label} (${metric.id})`;
+        wrapper.appendChild(text);
+
+        if (isUsed) {
+          const note = document.createElement("span");
+          note.className = "hint";
+          note.textContent = "już przypisano — edytuj istniejący tag w sekcji Zaawansowane";
+          wrapper.appendChild(note);
+        }
+
+        container.appendChild(wrapper);
+      }
+
+      if (!selectedStillAvailable) {
+        wizardState.metric = null;
+        document.getElementById("wizard-step1-next").disabled = true;
+      }
+    }
+
+    // Step 2 -----------------------------------------------------------
+    function wizardRenderPlcOptions() {
+      const select = document.getElementById("wizard-plc-select");
+      clearChildren(select);
+      for (const p of PLCS) select.appendChild(makeOption(p.id, `${p.name} (${p.area_id})`));
+      if (wizardState.plcId !== null) select.value = wizardState.plcId;
+    }
+
+    // Step 3 -----------------------------------------------------------
+    function wizardRenderTypeOptions() {
+      const select = document.getElementById("wizard-type-select");
+      clearChildren(select);
+      for (const t of WIZARD_TAG_TYPES) select.appendChild(makeOption(t, t));
+    }
+
+    function wizardUpdateBitVisibility() {
+      const type = document.getElementById("wizard-type-select").value;
+      document.getElementById("wizard-bit-label").classList.toggle("hidden", type !== "BOOL");
+    }
+
+    // TIA-Portal-style address notation, pure function of the current
+    // field values — used for both the live step-3 preview and the
+    // step-6 summary (computed from the already-captured wizardState).
+    function wizardFormatAddress(type, db, offset, bit) {
+      if (type === "BOOL") return `DB${db}.DBX${offset}.${bit}`;
+      if (type === "REAL" || type === "DINT") return `DB${db}.DBD${offset}`;
+      if (type === "INT" || type === "WORD") return `DB${db}.DBW${offset}`;
+      if (type === "BYTE") return `DB${db}.DBB${offset}`;
+      if (type === "STRING") return `DB${db}.DBX${offset}.0 (String)`;
+      return "";
+    }
+
+    function wizardUpdateAddressPreview() {
+      const type = document.getElementById("wizard-type-select").value;
+      const db = document.getElementById("wizard-db-input").value;
+      const offset = document.getElementById("wizard-offset-input").value;
+      const bit = document.getElementById("wizard-bit-input").value;
+      document.getElementById("wizard-address-preview").textContent = wizardFormatAddress(type, db, offset, bit);
+    }
+
+    function wizardOnAddressFieldChange() {
+      wizardUpdateBitVisibility();
+      wizardUpdateAddressPreview();
+    }
+
+    // Step 4 -------------------------------------------------------------
+    // Deliberately NOT using fetchJson: fetchJson's generic error handler
+    // alert()s on every non-2xx response, which would turn the expected
+    // "PLC offline" / "bad address" 502s into a blocking dialog. Probing
+    // must never block moving on to steps 5/6 (see design doc §5.4), so
+    // every outcome here is shown inline instead.
+    async function wizardProbe() {
+      const resultEl = document.getElementById("wizard-probe-result");
+      resultEl.textContent = "Testowanie...";
+      resultEl.className = "";
+
+      const body = {
+        db: wizardState.db,
+        offset: wizardState.offset,
+        bit: wizardState.bit,
+        type: wizardState.type,
+      };
+
+      let resp;
+      try {
+        resp = await fetch(`/api/plcs/${wizardState.plcId}/probe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Admin-Token": getAdminToken() },
+          body: JSON.stringify(body),
+        });
+      } catch (networkErr) {
+        resultEl.textContent = "Sterownik nie odpowiada";
+        resultEl.className = "status-bad";
+        return;
+      }
+
+      if (resp.status === 401) {
+        clearAdminToken();
+        alert("Nieprawidłowy lub brakujący token administratora. Odśwież stronę, aby podać go ponownie.");
+        return;
+      }
+
+      if (resp.status === 502) {
+        const errBody = await resp.json().catch(() => ({}));
+        resultEl.textContent = errBody.error === "connect_failed"
+          ? "Sterownik nie odpowiada"
+          : "Nie udało się odczytać spod tego adresu — sprawdź DB/offset/typ";
+        resultEl.className = "status-bad";
+        return;
+      }
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        resultEl.textContent = `Błąd testu odczytu (${resp.status}): ${text}`;
+        resultEl.className = "status-bad";
+        return;
+      }
+
+      const result = await resp.json();
+      const timeText = new Date(result.read_at).toLocaleTimeString("pl-PL");
+      resultEl.textContent = `Odczytano: ${result.value} (o ${timeText})`;
+      resultEl.className = "status-ok";
+    }
+
+    // Step 5 -----------------------------------------------------------
+    function wizardOnThresholdCheckboxChange(checked) {
+      document.getElementById("wizard-threshold-fields").classList.toggle("hidden", !checked);
+    }
+
+    // Step 6 -----------------------------------------------------------
+    function wizardRenderSummary() {
+      const plc = PLCS.find((p) => p.id === wizardState.plcId);
+      const plcName = plc ? plc.name : `#${wizardState.plcId}`;
+      const address = wizardFormatAddress(wizardState.type, wizardState.db, wizardState.offset, wizardState.bit);
+      const thresholdText = wizardState.thresholdEnabled
+        ? ` | Próg: min=${wizardState.thresholdMin ?? "—"} max=${wizardState.thresholdMax ?? "—"}`
+        : "";
+      document.getElementById("wizard-summary").textContent =
+        `${wizardState.metric.label} (${wizardState.metric.id}) — PLC: ${plcName} — ${address} [${wizardState.type}]${thresholdText}`;
+    }
+
+    // Like fetchJson, but never alert()s on non-2xx — every save/threshold
+    // error must be shown inline per §6 (preserve form state, don't block).
+    async function wizardPostJson(url, payload) {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Admin-Token": getAdminToken() },
+        body: JSON.stringify(payload),
+      });
+      if (resp.status === 401) {
+        clearAdminToken();
+        throw new Error("Nieprawidłowy lub brakujący token administratora. Odśwież stronę, aby podać go ponownie.");
+      }
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.detail || `Błąd ${resp.status}`);
+      }
+      return resp.json();
+    }
+
+    function wizardBuildTagPayload() {
+      return {
+        plc_id: wizardState.plcId,
+        name: wizardState.metric.id,
+        db: wizardState.db,
+        offset: wizardState.offset,
+        bit: wizardState.bit,
+        type: wizardState.type,
+        metric_id: wizardState.metric.id,
+        label: wizardState.metric.label,
+        unit: wizardState.metric.unit,
+        decimals: wizardState.metric.decimals,
+      };
+    }
+
+    async function wizardPostThreshold(tagId) {
+      return wizardPostJson("/api/thresholds", {
+        tag_id: tagId,
+        min: wizardState.thresholdMin,
+        max: wizardState.thresholdMax,
+      });
+    }
+
+    async function wizardFinish(message) {
+      const confirmationEl = document.getElementById("wizard-confirmation");
+      confirmationEl.textContent = message;
+      confirmationEl.className = "status-ok";
+      confirmationEl.classList.remove("hidden");
+      await refreshAll();
+      wizardReset();
+    }
+
+    async function wizardSubmitTag() {
+      const saveBtn = document.getElementById("wizard-save-button");
+      const retryBtn = document.getElementById("wizard-retry-threshold-button");
+      const resultEl = document.getElementById("wizard-result");
+      retryBtn.classList.add("hidden");
+      saveBtn.disabled = true;
+      resultEl.className = "";
+      resultEl.textContent = "";
+
+      let tag;
+      try {
+        tag = await wizardPostJson("/api/tags", wizardBuildTagPayload());
+      } catch (err) {
+        // Preserve all entered form state — do not reset/advance.
+        resultEl.textContent = `Nie udało się zapisać zmiennej: ${err.message}`;
+        resultEl.className = "status-bad";
+        saveBtn.disabled = false;
+        return;
+      }
+
+      wizardState.lastTagId = tag.id;
+
+      if (!wizardState.thresholdEnabled) {
+        await wizardFinish("Zmienna została pomyślnie przypisana.");
+        return;
+      }
+
+      try {
+        await wizardPostThreshold(tag.id);
+        await wizardFinish("Zmienna i próg alarmowy zostały pomyślnie zapisane.");
+      } catch (err) {
+        // Partial success: the tag already exists — never recreate it,
+        // only retry the threshold POST against the known tag_id.
+        resultEl.textContent = "Zmienna zapisana, ale nie udało się ustawić progu.";
+        resultEl.className = "status-bad";
+        retryBtn.classList.remove("hidden");
+        saveBtn.disabled = false;
+      }
+    }
+
+    async function wizardRetryThreshold() {
+      const retryBtn = document.getElementById("wizard-retry-threshold-button");
+      const resultEl = document.getElementById("wizard-result");
+      retryBtn.disabled = true;
+      try {
+        await wizardPostThreshold(wizardState.lastTagId);
+        await wizardFinish("Próg alarmowy został pomyślnie zapisany.");
+      } catch (err) {
+        resultEl.textContent = "Zmienna zapisana, ale nie udało się ustawić progu.";
+        resultEl.className = "status-bad";
+      } finally {
+        retryBtn.disabled = false;
+      }
+    }
+
+    function wizardReset() {
+      wizardState = {
+        areaId: wizardState.areaId,
+        metric: null,
+        plcId: null,
+        type: "REAL",
+        db: 1,
+        offset: 0,
+        bit: 0,
+        thresholdEnabled: false,
+        thresholdMin: null,
+        thresholdMax: null,
+        lastTagId: null,
+      };
+
+      document.getElementById("wizard-step1-next").disabled = true;
+      document.getElementById("wizard-type-select").value = "REAL";
+      document.getElementById("wizard-db-input").value = "1";
+      document.getElementById("wizard-offset-input").value = "0";
+      document.getElementById("wizard-bit-input").value = "0";
+      document.getElementById("wizard-threshold-checkbox").checked = false;
+      document.getElementById("wizard-threshold-fields").classList.add("hidden");
+      document.getElementById("wizard-threshold-min").value = "";
+      document.getElementById("wizard-threshold-max").value = "";
+      document.getElementById("wizard-probe-result").textContent = "";
+      document.getElementById("wizard-probe-result").className = "";
+      document.getElementById("wizard-result").textContent = "";
+      document.getElementById("wizard-result").className = "";
+      document.getElementById("wizard-retry-threshold-button").classList.add("hidden");
+      document.getElementById("wizard-save-button").disabled = false;
+
+      wizardRenderMetrics();
+      wizardUpdateBitVisibility();
+      wizardUpdateAddressPreview();
+      wizardGoToStep(1);
+    }
+
+    function initWizard() {
+      wizardRenderTypeOptions();
+
+      document.getElementById("wizard-area-select").addEventListener("change", (e) => {
+        wizardState.areaId = e.target.value;
+        wizardState.metric = null;
+        document.getElementById("wizard-step1-next").disabled = true;
+        wizardRenderMetrics();
+      });
+
+      document.getElementById("wizard-step1-next").addEventListener("click", () => {
+        if (!wizardState.metric) return;
+        wizardGoToStep(2);
+      });
+
+      document.getElementById("wizard-step2-back").addEventListener("click", () => wizardGoToStep(1));
+      document.getElementById("wizard-step2-next").addEventListener("click", () => {
+        const select = document.getElementById("wizard-plc-select");
+        if (!select.value) {
+          alert('Najpierw dodaj przynajmniej jeden sterownik PLC w sekcji "Sterowniki PLC".');
+          return;
+        }
+        wizardState.plcId = parseInt(select.value, 10);
+        wizardGoToStep(3);
+      });
+
+      for (const id of ["wizard-type-select", "wizard-db-input", "wizard-offset-input", "wizard-bit-input"]) {
+        document.getElementById(id).addEventListener("input", wizardOnAddressFieldChange);
+        document.getElementById(id).addEventListener("change", wizardOnAddressFieldChange);
+      }
+
+      document.getElementById("wizard-step3-back").addEventListener("click", () => wizardGoToStep(2));
+      document.getElementById("wizard-step3-next").addEventListener("click", () => {
+        wizardState.type = document.getElementById("wizard-type-select").value;
+        wizardState.db = parseInt(document.getElementById("wizard-db-input").value, 10);
+        wizardState.offset = parseInt(document.getElementById("wizard-offset-input").value, 10);
+        wizardState.bit = wizardState.type === "BOOL"
+          ? parseInt(document.getElementById("wizard-bit-input").value, 10)
+          : 0;
+        document.getElementById("wizard-probe-result").textContent = "";
+        document.getElementById("wizard-probe-result").className = "";
+        wizardGoToStep(4);
+      });
+
+      document.getElementById("wizard-probe-button").addEventListener("click", () => { wizardProbe(); });
+      document.getElementById("wizard-step4-back").addEventListener("click", () => wizardGoToStep(3));
+      document.getElementById("wizard-step4-next").addEventListener("click", () => wizardGoToStep(5));
+
+      document.getElementById("wizard-threshold-checkbox").addEventListener("change", (e) => {
+        wizardOnThresholdCheckboxChange(e.target.checked);
+      });
+
+      document.getElementById("wizard-step5-back").addEventListener("click", () => wizardGoToStep(4));
+      document.getElementById("wizard-step5-next").addEventListener("click", () => {
+        wizardState.thresholdEnabled = document.getElementById("wizard-threshold-checkbox").checked;
+        if (wizardState.thresholdEnabled) {
+          const minVal = document.getElementById("wizard-threshold-min").value;
+          const maxVal = document.getElementById("wizard-threshold-max").value;
+          wizardState.thresholdMin = minVal === "" ? null : parseFloat(minVal);
+          wizardState.thresholdMax = maxVal === "" ? null : parseFloat(maxVal);
+          if (
+            wizardState.thresholdMin !== null &&
+            wizardState.thresholdMax !== null &&
+            wizardState.thresholdMax < wizardState.thresholdMin
+          ) {
+            alert("Wartość max musi być większa lub równa min.");
+            return;
+          }
+        } else {
+          wizardState.thresholdMin = null;
+          wizardState.thresholdMax = null;
+        }
+        wizardRenderSummary();
+        wizardGoToStep(6);
+      });
+
+      document.getElementById("wizard-step6-back").addEventListener("click", () => wizardGoToStep(5));
+      document.getElementById("wizard-save-button").addEventListener("click", () => { wizardSubmitTag(); });
+      document.getElementById("wizard-retry-threshold-button").addEventListener("click", () => { wizardRetryThreshold(); });
+
+      wizardUpdateBitVisibility();
+      wizardUpdateAddressPreview();
+      wizardGoToStep(1);
+    }
+
+    initWizard();
     refreshAll();
   </script>
 </body>
