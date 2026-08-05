@@ -103,13 +103,18 @@ cd ProductionDashboard
 cp .env.example .env
 ```
 
-Ustaw w `.env`, pod jakim adresem przeglądarka na kiosku znajdzie backend
-(domyślnie `ws://localhost:8001/ws` — poprawne, jeśli przeglądarka kiosku
-działa na tym samym Pi co backend; jeśli backend jest na innej maszynie,
-podmień `localhost` na jej adres IP w sieci LAN):
+Ustaw w `.env`, pod jakim adresem przeglądarka **na urządzeniu, z którego
+podglądasz wallboard** (nie na samym Pi) znajdzie backend. Domyślne
+`ws://localhost:8001/ws` działa tylko wtedy, gdy przeglądarka jest
+uruchomiona fizycznie na tym samym Pi (`localhost` wtedy poprawnie
+odnosi się do samego Pi). Jeśli otwierasz frontend z innego urządzenia w
+sieci LAN (laptop, telefon), `localhost` w tej wartości odnosi się do
+*tamtego* urządzenia, nie do Pi — połączenie WebSocket nigdy nie powstanie
+i pasek statusu w prawym górnym rogu pokaże **OFFLINE**, mimo że backend
+działa poprawnie. Podmień wtedy `localhost` na realny adres IP Pi:
 
 ```
-NEXT_PUBLIC_WS_URL=ws://localhost:8001/ws
+NEXT_PUBLIC_WS_URL=ws://10.10.0.244:8001/ws
 NEXT_PUBLIC_DATA_SOURCE=ws
 ```
 
@@ -118,6 +123,22 @@ NEXT_PUBLIC_DATA_SOURCE=ws
 > każdej zmianie `NEXT_PUBLIC_WS_URL`/`NEXT_PUBLIC_DATA_SOURCE` w `.env`
 > trzeba przebudować obraz (`docker compose up -d --build`), samo
 > `restart` kontenera nie wystarczy.
+
+**Pi z kilkoma interfejsami sieciowymi (WiFi + kilka Ethernetów):** Docker
+publikuje port backendu na `0.0.0.0`, czyli na wszystkich interfejsach
+naraz — sam Docker nie wymaga żadnej dodatkowej konfiguracji. Wybór
+należy do Ciebie: w `NEXT_PUBLIC_WS_URL` musi się znaleźć adres IP tego
+interfejsu Pi, który jest w tej samej sieci co urządzenie podglądowe
+(`ip -4 addr show` na Pi pokaże adresy wszystkich interfejsów). Typowy,
+bezpieczny podział przy oddzielnej sieci OT/PLC: jeden Ethernet do
+sterowników S7 (adres używany tylko wewnętrznie przez backend przy
+dodawaniu PLC w panelu admina — bez związku z `NEXT_PUBLIC_WS_URL`),
+drugi Ethernet lub WiFi do sieci biurowej, po której urządzenia
+podglądowe faktycznie łączą się z kioskiem — to tej drugiej IP używa się
+w `NEXT_PUBLIC_WS_URL`. Ponieważ zmiana tej IP wymaga przebudowy obrazu
+frontendu (patrz uwaga wyżej), warto ustawić na tym interfejsie adres
+**statyczny** (lub rezerwację DHCP) zamiast liczyć na to, że DHCP za
+każdym razem przydzieli tę samą wartość.
 
 Zbuduj i uruchom:
 
