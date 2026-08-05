@@ -5,6 +5,9 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Standalone server bundle (.next/standalone) for a minimal Docker runtime
+  // image — see Dockerfile.
+  output: "standalone",
 };
 
 export default nextConfig;
