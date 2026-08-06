@@ -96,7 +96,7 @@ Backend wystawia:
 Dane (SQLite z konfiguracją PLC/tagów) trzymane są w wolumenie Dockera
 `dashboard_plc_data` i przeżywają restart/przebudowę kontenera.
 
-### 2. Frontend (kiosk)
+### 2. Frontend
 
 ```bash
 cd ProductionDashboard
@@ -104,25 +104,40 @@ cp .env.example .env
 ```
 
 Ustaw w `.env`, pod jakim adresem przeglądarka **na urządzeniu, z którego
-podglądasz wallboard** (nie na samym Pi) znajdzie backend. Domyślne
-`ws://localhost:8001/ws` działa tylko wtedy, gdy przeglądarka jest
-uruchomiona fizycznie na tym samym Pi (`localhost` wtedy poprawnie
-odnosi się do samego Pi). Jeśli otwierasz frontend z innego urządzenia w
-sieci LAN (laptop, telefon), `localhost` w tej wartości odnosi się do
-*tamtego* urządzenia, nie do Pi — połączenie WebSocket nigdy nie powstanie
-i pasek statusu w prawym górnym rogu pokaże **OFFLINE**, mimo że backend
-działa poprawnie. Podmień wtedy `localhost` na realny adres IP Pi:
+podglądasz wallboard** znajdzie backend. Domyślne `ws://localhost:8001/ws`
+działa tylko wtedy, gdy przeglądarka jest uruchomiona fizycznie na tym
+samym Pi (`localhost` wtedy poprawnie odnosi się do samego Pi).
+
+Jeśli wallboard jest oglądany **z sieci biurowej przez reverse proxy**
+(patrz `dashboard.conf` na maszynie proxy — aplikacja wystawiona jest tam
+pod `/infrastructure`), przeglądarka operatora nie ma bezpośredniego
+dostępu do podsieci OT (`10.10.0.x`), więc `NEXT_PUBLIC_WS_URL` musi
+wskazywać na adres proxy, nie na Pi:
+
+```
+NEXT_PUBLIC_WS_URL=ws://10.0.0.211/infrastructure/ws
+NEXT_PUBLIC_DATA_SOURCE=ws
+BASE_PATH=/infrastructure
+```
+
+Jeśli natomiast frontend jest oglądany bezpośrednio w podsieci OT (bez
+proxy — np. kiosk podłączony fizycznie do tego samego Pi lub do tej samej
+sieci `10.10.0.x`), zostaw `BASE_PATH` puste i wskaż WS bezpośrednio na Pi:
 
 ```
 NEXT_PUBLIC_WS_URL=ws://10.10.0.244:8001/ws
 NEXT_PUBLIC_DATA_SOURCE=ws
 ```
 
-> **Ważne:** `NEXT_PUBLIC_*` są wkompilowywane w kod JS podczas budowania
-> obrazu (`next build`), nie odczytywane w czasie działania kontenera. Po
-> każdej zmianie `NEXT_PUBLIC_WS_URL`/`NEXT_PUBLIC_DATA_SOURCE` w `.env`
-> trzeba przebudować obraz (`docker compose up -d --build`), samo
-> `restart` kontenera nie wystarczy.
+`BASE_PATH` musi być spójny z `NEXT_PUBLIC_WS_URL` i z prefiksem `location`
+skonfigurowanym w `dashboard.conf` — to jeden przełącznik decydujący, czy
+apka jest budowana pod proxy, czy do bezpośredniego dostępu.
+
+> **Ważne:** `NEXT_PUBLIC_*` oraz `BASE_PATH` są wkompilowywane w kod JS
+> podczas budowania obrazu (`next build`), nie odczytywane w czasie
+> działania kontenera. Po każdej zmianie tych wartości w `.env` trzeba
+> przebudować obraz (`docker compose up -d --build`), samo `restart`
+> kontenera nie wystarczy.
 
 **Pi z kilkoma interfejsami sieciowymi (WiFi + kilka Ethernetów):** Docker
 publikuje port backendu na `0.0.0.0`, czyli na wszystkich interfejsach
@@ -146,20 +161,33 @@ Zbuduj i uruchom:
 docker compose up -d --build
 ```
 
-Frontend dostępny pod `http://<ip-pi>:3002/`. Do trybu kiosku (Chromium na
-pełnym ekranie wskazujący na ten adres) skonfiguruj autostart przeglądarki
-standardowym mechanizmem Raspberry Pi OS (poza zakresem tego README).
+Frontend dostępny pod `http://<ip-pi>:3002/` gdy `BASE_PATH` jest puste, albo
+pod `http://<ip-pi>:3002${BASE_PATH}/` (np. `.../infrastructure/`) gdy
+ustawione — z `BASE_PATH` root `/` już nie odpowiada, trzeba wejść pod
+prefiksem. Do trybu kiosku (Chromium na pełnym ekranie wskazujący na ten
+adres) skonfiguruj autostart przeglądarki standardowym mechanizmem
+Raspberry Pi OS (poza zakresem tego README).
 
 ### 3. Weryfikacja
+
+Bez `BASE_PATH` (dostęp bezpośredni):
 
 ```bash
 curl -sS http://localhost:8001/status   # dane z backendu (JSON)
 curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:3002/   # 200
 ```
 
-Następnie otwórz `http://<ip-pi>:3002/` w przeglądarce — bez skonfigurowanych
-PLC/tagów w panelu admina (`http://<ip-pi>:8001/`) obszary będą puste/offline,
-co jest oczekiwanym stanem świeżej instalacji.
+Z `BASE_PATH=/infrastructure` (dostęp przez reverse proxy):
+
+```bash
+curl -sS http://localhost:8001/status                              # dane z backendu (JSON)
+curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:3002/infrastructure/   # 200
+```
+
+Następnie otwórz frontend w przeglądarce (adres jak wyżej, zależnie od
+`BASE_PATH`) — bez skonfigurowanych PLC/tagów w panelu admina
+(`http://<ip-pi>:8001/`) obszary będą puste/offline, co jest oczekiwanym
+stanem świeżej instalacji.
 
 ### Aktualizacja do nowszej wersji
 

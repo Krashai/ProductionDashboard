@@ -18,6 +18,9 @@ services:
         # backend isn't reachable at the default address.
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8001/ws}
         NEXT_PUBLIC_DATA_SOURCE: ${NEXT_PUBLIC_DATA_SOURCE:-ws}
+        # Subpath this deployment is served under behind a reverse proxy
+        # (e.g. "/infrastructure") — empty by default (served from "/").
+        BASE_PATH: ${BASE_PATH:-}
     image: production-dashboard-frontend:latest
     container_name: dashboard-frontend
     restart: unless-stopped
