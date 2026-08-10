@@ -41,6 +41,7 @@ body {
    preferencję ograniczonego ruchu systemu operacyjnego. */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-subtle,
+  .animate-alarm-flash,
   .animate-pulse,
   .animate-spin,
   .animate-bounce-slow {

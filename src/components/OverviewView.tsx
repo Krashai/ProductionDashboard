@@ -115,11 +115,12 @@ export function OverviewView() {
 }
 
 /**
- * Nagłówek sekcji + kolorowy chip ikony (DesignGuideline.md §5/§7: `p-2
- * rounded-xl border`, ikona 18-22px). Kolor chipu odpowiada dominującej
- * metryce sekcji wg `metric-color.ts` (temperatura chłodni → blue, ciśnienie
- * sprężonego powietrza → emerald, moc czynna → amber), więc jest to samo
- * kodowanie kolorem co na kaflach, nie nowy, osobny wybór.
+ * Nagłówek sekcji + chip ikony (DesignGuideline.md §5/§7: `p-2 rounded-xl
+ * border`, ikona 18-22px). Ujednolicenie kolorystyki (decyzja użytkownika,
+ * sierpień 2026): wszystkie trzy chipy są teraz jednym neutralnym kolorem
+ * (`slate`) — dawne kodowanie per sekcja (Chłodnia→blue, Sprężone
+ * powietrze→emerald, Energia→amber, `metric-color.ts`) usunięte, bo jedyny
+ * kolor, który ma cokolwiek sygnalizować w tym UI, to rose przy alarmie.
  */
 function SectionHeading({
   icon: Icon,
@@ -170,7 +171,7 @@ function CoolingRow({
     // Dla rzędów 1 i 3, gdzie wysokości obu kolumn już się pokrywają, nie
     // ma to żadnego efektu wizualnego.
     <section className="min-h-0 shrink-0 self-center">
-      <SectionHeading icon={Snowflake} color="blue">
+      <SectionHeading icon={Snowflake} color="slate">
         {definition.name}
       </SectionHeading>
       <div className="grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4">
@@ -219,7 +220,7 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
       {/* Makieta nazywa tę sekcję "Sprężone powietrze", mimo że rejestr (i
        * pasek nazw obszarów powyżej) używa "Sprężarkownia" — świadomie różne
        * etykiety w dwóch miejscach, zgodnie z decyzją #27/makietą. */}
-      <SectionHeading icon={Wind} color="emerald">
+      <SectionHeading icon={Wind} color="slate">
         Sprężone powietrze
       </SectionHeading>
       <div className="grid grid-cols-2 gap-2 xl:gap-3 2xl:gap-4">
@@ -258,7 +259,7 @@ function PowerSection({
 
   return (
     <section className="min-h-0 shrink-0">
-      <SectionHeading icon={Zap} color="amber">
+      <SectionHeading icon={Zap} color="slate">
         {definition.name}
       </SectionHeading>
       <div className="grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4 mb-2 xl:mb-3 2xl:mb-4">

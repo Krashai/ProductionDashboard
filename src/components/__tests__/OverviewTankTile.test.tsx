@@ -43,14 +43,20 @@ describe('OverviewTankTile', () => {
     expect(contentWrapper).toHaveTextContent('198');
   });
 
-  test('domyślny stan ma białą kartę z niebieskim paskiem akcentu (DesignGuideline §5)', () => {
+  test('domyślny stan ma białą kartę z niewidocznym paskiem akcentu (ujednolicenie kolorystyki)', () => {
     const { container } = render(<OverviewTankTile valueCm={95} maxCm={110} />);
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).toMatch(/bg-white/);
     expect(root.className).toMatch(/border-slate-200/);
-    expect(root.className).toMatch(/shadow-\[2px_0_15px_rgba\(59,130,246,0\.3\)\]/);
     const accentBar = root.querySelector('[aria-hidden="true"]') as HTMLElement;
-    expect(accentBar.className).toMatch(/bg-blue-500/);
+    expect(accentBar.className).toMatch(/bg-transparent/);
+    expect(accentBar.className).not.toMatch(/bg-rose/);
+  });
+
+  test('wartość ujemna jest przycinana do 0 na potrzeby wyświetlania (szum PLC), niezależnie od % wypełnienia', () => {
+    render(<OverviewTankTile valueCm={-10} maxCm={200} testId="tank-neg" />);
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('-10')).not.toBeInTheDocument();
   });
 
   test('wypełnienie proporcjonalne do valueCm/maxCm', () => {
@@ -93,13 +99,13 @@ describe('OverviewTankTile', () => {
     expect(screen.queryByText('95')).not.toBeInTheDocument();
   });
 
-  test('alarm=true koloruje wypełnienie na czerwono i pulsuje', () => {
+  test('alarm=true koloruje wypełnienie na czerwono i miga (decyzja użytkownika: cały kafel widocznie miga)', () => {
     const { container } = render(
       <OverviewTankTile valueCm={50} maxCm={200} alarm testId="tank-e" />
     );
     const root = container.firstElementChild as HTMLElement;
     const fill = container.querySelector('[data-testid="overview-tank-fill-tank-e"]') as HTMLElement;
-    expect(root).toHaveClass('animate-pulse-subtle');
+    expect(root).toHaveClass('animate-alarm-flash');
     expect(root.className).toMatch(/shadow-\[2px_0_20px_rgba\(225,29,72,0\.3\)\]/);
     expect(fill.className).toMatch(/bg-rose/);
     const accentBar = root.querySelector('[aria-hidden="true"]') as HTMLElement;

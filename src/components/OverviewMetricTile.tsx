@@ -1,8 +1,7 @@
 'use client'
 
-import { cn } from '@/lib/utils';
+import { clampNonNegative, cn } from '@/lib/utils';
 import { Counter } from '@/components/Counter';
-import { metricColorForUnit } from '@/lib/metric-color';
 import {
   overviewAccentBarClasses,
   overviewAccentGlowShadow,
@@ -29,10 +28,10 @@ interface OverviewMetricTileProps {
  * niezmieniony dla karuzeli/widoku szczegółowego).
  *
  * Wizualnie zgodny z DesignGuideline.md §5 "Karta elementu listy/linii":
- * biała karta + kolorowy pasek statusu po lewej z dopasowaną poświatą,
- * zamiast poprzedniego płaskiego wypełnienia `bg-slate-200`. Kolor paska w
- * stanie normalnym pochodzi z `metricColorForUnit` (ta sama mapa co karuzela
- * — °C→blue, bar→emerald, kW→amber, kVA→slate), w stanie alarmu zawsze rose.
+ * biała karta + boczny pasek statusu. Ujednolicenie kolorystyki (decyzja
+ * użytkownika, sierpień 2026): pasek/poświata są niewidoczne w stanie
+ * normalnym — jedyny kolor, który kiedykolwiek coś sygnalizuje, to rose przy
+ * alarmie (dawne kolorowanie per jednostka z `metric-color.ts` usunięte).
  */
 export function OverviewMetricTile({
   label,
@@ -44,15 +43,13 @@ export function OverviewMetricTile({
   testId,
   className,
 }: OverviewMetricTileProps) {
-  const color = unit ? metricColorForUnit(unit) : 'slate';
-
   return (
     <div
       data-testid={testId}
       className={cn(
         // Brak `shadow-sm` bazowego: `overviewAccentGlowShadow` niżej zawsze
-        // nadpisuje shadow przez twMerge (wpis dla każdego koloru, w tym
-        // slate), więc statyczny fallback byłby martwym kodem.
+        // nadpisuje shadow przez twMerge (pusty string w stanie normalnym),
+        // więc statyczny fallback byłby martwym kodem.
         //
         // `flex flex-col` na korzeniu (razem z `flex-1`+`justify-between` na
         // wewnętrznym wrapperze) — żeby etykieta trzymała się dolnej krawędzi
@@ -61,15 +58,19 @@ export function OverviewMetricTile({
         // `OverviewTankTile` w tym samym rzędzie Chłodni).
         'relative min-w-0 overflow-hidden rounded-2xl xl:rounded-[1.75rem] 2xl:rounded-[2rem] flex flex-col transition-all duration-500',
         overviewCardStateClasses(alarm, offline),
-        overviewAccentGlowShadow(color, alarm),
+        overviewAccentGlowShadow(alarm),
         className
       )}
     >
-      <span aria-hidden="true" className={overviewAccentBarClasses(color, alarm)} />
+      <span aria-hidden="true" className={overviewAccentBarClasses(alarm)} />
       <div className="flex-1 min-h-0 flex flex-col justify-between min-w-0 pl-4 pr-3 py-3 xl:pl-5 xl:pr-4 xl:py-4 2xl:pl-7 2xl:pr-6 2xl:py-6">
         <div className="flex items-baseline gap-1 flex-wrap">
-          <span className="text-4xl xl:text-5xl 2xl:text-6xl font-black tracking-tighter tabular-nums leading-none text-slate-900">
-            {offline ? <span className="text-slate-400">—</span> : <Counter value={value} decimals={decimals} />}
+          <span className="text-4xl xl:text-5xl 2xl:text-6xl font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900">
+            {offline ? (
+              <span className="text-slate-400">—</span>
+            ) : (
+              <Counter value={clampNonNegative(value)} decimals={decimals} />
+            )}
           </span>
           {unit && (
             <span className="text-sm xl:text-base 2xl:text-xl font-bold text-slate-500 lowercase">{unit}</span>

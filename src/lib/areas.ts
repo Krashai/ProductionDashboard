@@ -61,18 +61,23 @@ function compressorArea(): AreaDefinition {
 // trafostacja, żeby przyszła karta (Faza 3) mogła je czytelnie pogrupować.
 function powerArea(): AreaDefinition {
   const substations = [1, 2, 3];
+  // decimals 0→1: backend dzieli te surowe odczyty PLC przez 1000 (W→kW,
+  // VA→kVA) u źródła (mirror w backend/app/domain/areas.py, zsynchronizowane
+  // ręcznie) — dawne 5-cyfrowe watty (np. 44439) stają się np. 44.439, więc
+  // 1 miejsce po przecinku (44.4) zachowuje użyteczną precyzję zamiast
+  // zaokrąglać ją niemal całkowicie do zera.
   const metrics: MetricDefinition[] = substations.flatMap((n) => [
     {
       id: `trafostacja-${n}-active`,
       label: `Trafostacja ${n} — Moc czynna`,
       unit: 'kW',
-      decimals: 0,
+      decimals: 1,
     },
     {
       id: `trafostacja-${n}-apparent`,
       label: `Trafostacja ${n} — Moc pozorna`,
       unit: 'kVA',
-      decimals: 0,
+      decimals: 1,
     },
   ]);
 
@@ -84,10 +89,14 @@ function powerArea(): AreaDefinition {
   };
 }
 
+// maxCm 250→150 (korekta po konsultacji z użytkownikiem): fizyczna skala
+// zbiornika jest niższa niż zakładano pierwotnie — przy 150cm zbiornik jest
+// w pełni "zatopiony" (100% wypełnienia), reszta logiki (ratio = clamp(
+// valueCm/maxCm, 0, 1)) nie wymaga żadnej zmiany.
 export const AREAS: AreaDefinition[] = [
-  coolingArea('chlodnia-1', 'Chłodnia 1', 250),
-  coolingArea('chlodnia-2', 'Chłodnia 2', 250),
-  coolingArea('chlodnia-3', 'Chłodnia 3', 250),
+  coolingArea('chlodnia-1', 'Chłodnia 1', 150),
+  coolingArea('chlodnia-2', 'Chłodnia 2', 150),
+  coolingArea('chlodnia-3', 'Chłodnia 3', 150),
   compressorArea(),
   powerArea(),
 ];

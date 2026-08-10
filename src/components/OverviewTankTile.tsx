@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { clampNonNegative, cn } from '@/lib/utils';
 import {
   overviewAccentBarClasses,
   overviewAccentGlowShadow,
@@ -32,9 +32,11 @@ interface OverviewTankTileProps {
  * renderują się w zupełnie innej gałęzi drzewa/gridzie).
  *
  * Karta dzieli wygląd z `OverviewMetricTile` (biały bg + boczny pasek
- * akcentu, DesignGuideline.md §5) — kolor paska jest na stałe `blue`
- * (dopasowany do koloru wypełnienia zbiornika), bo poziom `cm` nie ma wpisu
- * w `metric-color.ts`.
+ * akcentu, DesignGuideline.md §5). Ujednolicenie kolorystyki (decyzja
+ * użytkownika, sierpień 2026): pasek/poświata są niewidoczne w stanie
+ * normalnym — jedyny kolor, który kiedykolwiek coś sygnalizuje, to rose przy
+ * alarmie, niezależnie od koloru wypełnienia poziomu (który zostaje blue/
+ * rose, bo to osobna warstwa wizualna, patrz niżej).
  */
 export function OverviewTankTile({
   valueCm,
@@ -54,11 +56,11 @@ export function OverviewTankTile({
         // Brak `shadow-sm` bazowego, patrz komentarz w OverviewMetricTile.tsx.
         'relative min-w-0 overflow-hidden rounded-2xl xl:rounded-[1.75rem] 2xl:rounded-[2rem] flex flex-col transition-all duration-500',
         overviewCardStateClasses(alarm, offline),
-        overviewAccentGlowShadow('blue', alarm),
+        overviewAccentGlowShadow(alarm),
         className
       )}
     >
-      <span aria-hidden="true" className={overviewAccentBarClasses('blue', alarm)} />
+      <span aria-hidden="true" className={overviewAccentBarClasses(alarm)} />
       <div
         data-testid={testId ? `overview-tank-fill-${testId}` : undefined}
         aria-hidden="true"
@@ -70,8 +72,8 @@ export function OverviewTankTile({
       />
       <div className="relative z-10 flex-1 min-h-0 flex flex-col justify-between min-w-0 pl-4 pr-3 py-3 xl:pl-5 xl:pr-4 xl:py-4 2xl:pl-7 2xl:pr-6 2xl:py-6">
         <div className="flex items-baseline gap-1">
-          <span className="text-4xl xl:text-5xl 2xl:text-6xl font-black tracking-tighter tabular-nums leading-none text-slate-900">
-            {offline ? '—' : Math.round(valueCm)}
+          <span className="text-4xl xl:text-5xl 2xl:text-6xl font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900">
+            {offline ? '—' : Math.round(clampNonNegative(valueCm))}
           </span>
           <span className="text-sm xl:text-base 2xl:text-xl font-bold text-slate-800 lowercase">cm</span>
         </div>

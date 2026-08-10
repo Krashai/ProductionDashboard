@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn, clampNonNegative } from '@/lib/utils';
 import { Counter } from '@/components/Counter';
 import { Sparkline } from '@/components/Sparkline';
 import type { AreaDefinition } from '@/lib/areas';
@@ -53,7 +53,7 @@ function PressureReading({ metric, offline }: { metric: Metric; offline: boolean
       data-testid={`compressor-reading-${metric.id}`}
       className={cn(
         'flex-1 flex flex-col items-center gap-3 rounded-[1.5rem] border p-6 transition-all duration-500',
-        metric.alarm ? 'border-rose-200 animate-pulse-subtle motion-reduce:animate-none' : 'border-slate-100'
+        metric.alarm ? 'border-rose-200 animate-alarm-flash motion-reduce:animate-none' : 'border-slate-100'
       )}
     >
       {/* `p`, nie `h4` — podpis pojedynczego odczytu, nie nagłówek
@@ -62,8 +62,8 @@ function PressureReading({ metric, offline }: { metric: Metric; offline: boolean
         {metric.label}
       </p>
       <div className="flex items-baseline gap-1">
-        <span className="text-4xl 2xl:text-5xl font-black tracking-tighter tabular-nums leading-none text-slate-900">
-          {offline ? <span className="text-slate-500">—</span> : <Counter value={metric.value} decimals={metric.decimals} />}
+        <span className="text-4xl 2xl:text-5xl font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900">
+          {offline ? <span className="text-slate-500">—</span> : <Counter value={clampNonNegative(metric.value)} decimals={metric.decimals} />}
         </span>
         <span className="text-base font-black text-slate-500 uppercase">{metric.unit}</span>
       </div>

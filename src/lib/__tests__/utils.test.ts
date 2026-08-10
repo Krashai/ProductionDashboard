@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { cn } from '@/lib/utils';
+import { clampNonNegative, cn } from '@/lib/utils';
 
 describe('cn', () => {
   test('łączy proste klasy stringowe', () => {
@@ -20,5 +20,19 @@ describe('cn', () => {
 
   test('zwraca pusty string, gdy nie podano żadnych argumentów', () => {
     expect(cn()).toBe('');
+  });
+});
+
+describe('clampNonNegative', () => {
+  test('przycina ujemny szum PLC do 0', () => {
+    expect(clampNonNegative(-0.05)).toBe(0);
+  });
+
+  test('zwraca dodatnią wartość bez zmian', () => {
+    expect(clampNonNegative(7.3)).toBe(7.3);
+  });
+
+  test('0 pozostaje 0', () => {
+    expect(clampNonNegative(0)).toBe(0);
   });
 });

@@ -65,6 +65,14 @@ describe('AREAS registry', () => {
         expect(area.maxCm as number).toBeGreaterThan(0);
       }
     });
+
+    // Korekta po konsultacji z użytkownikiem: maxCm 250→150 — przy 150cm
+    // zbiornik jest w pełni "zatopiony" (100% wypełnienia kafla).
+    test('maxCm to 150cm dla wszystkich trzech chłodni', () => {
+      for (const area of coolingAreas) {
+        expect(area.maxCm).toBe(150);
+      }
+    });
   });
 
   describe('obszar typu compressor (Sprężarkownia, konsolidacja 2 fizycznych sprężarkowni)', () => {
@@ -116,6 +124,14 @@ describe('AREAS registry', () => {
     test('jednostki naprzemiennie kW/kVA per trafostacja', () => {
       const units = powerArea.metrics.map((m) => m.unit);
       expect(units).toEqual(['kW', 'kVA', 'kW', 'kVA', 'kW', 'kVA']);
+    });
+
+    // Backend dzieli te odczyty przez 1000 (W→kW, VA→kVA) u źródła — 1
+    // miejsce po przecinku zamiast dawnych 0 zachowuje użyteczną precyzję.
+    test('wszystkie 6 metryk ma decimals=1', () => {
+      for (const m of powerArea.metrics) {
+        expect(m.decimals).toBe(1);
+      }
     });
 
     test('nie ma zdefiniowanego maxCm', () => {

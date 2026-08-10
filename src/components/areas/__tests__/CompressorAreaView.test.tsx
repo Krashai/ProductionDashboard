@@ -77,9 +77,9 @@ describe('CompressorAreaView', () => {
     const aluminiumReading = container.querySelector('[data-testid="compressor-reading-sprezarkownia-aluminium"]');
     const outerCard = container.querySelector('[data-testid="compressor-pressure-card"]');
 
-    expect(drumsReading).toHaveClass('animate-pulse-subtle');
-    expect(aluminiumReading).not.toHaveClass('animate-pulse-subtle');
-    expect(outerCard).not.toHaveClass('animate-pulse-subtle');
+    expect(drumsReading).toHaveClass('animate-alarm-flash');
+    expect(aluminiumReading).not.toHaveClass('animate-alarm-flash');
+    expect(outerCard).not.toHaveClass('animate-alarm-flash');
   });
 
   test('isOnline===false wygasza wizualnie całą kartę (oba odczyty)', () => {

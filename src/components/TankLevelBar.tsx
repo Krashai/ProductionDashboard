@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { clampNonNegative, cn } from '@/lib/utils';
 
 interface TankLevelBarProps {
   valueCm: number;
@@ -41,7 +41,7 @@ export function TankLevelBar({
         // Jak w MetricCard: skalowanie w górę na `2xl:` zamiast pustej
         // przestrzeni — ten sam słupek, tylko większy w trybie TV.
         compact ? 'rounded-xl 2xl:rounded-2xl p-2 2xl:p-7 gap-1.5 2xl:gap-5' : 'rounded-[2.5rem] p-6 2xl:p-8 gap-4',
-        alarm ? 'border-rose-200 animate-pulse-subtle motion-reduce:animate-none' : 'border-slate-200',
+        alarm ? 'border-rose-200 animate-alarm-flash motion-reduce:animate-none' : 'border-slate-200',
         offline && 'grayscale-[0.5] opacity-75',
         className
       )}
@@ -76,11 +76,11 @@ export function TankLevelBar({
       <div className="flex items-baseline gap-1">
         <span
           className={cn(
-            'font-black text-slate-900 tracking-tighter tabular-nums leading-none',
+            'font-black font-mono text-slate-900 tracking-tighter tabular-nums leading-none',
             compact ? 'text-base 2xl:text-4xl' : 'text-3xl'
           )}
         >
-          {offline ? '—' : Math.round(valueCm)}
+          {offline ? '—' : Math.round(clampNonNegative(valueCm))}
         </span>
         <span className={cn('font-black text-slate-500 uppercase', compact ? 'text-[9px] 2xl:text-lg' : 'text-sm')}>
           cm

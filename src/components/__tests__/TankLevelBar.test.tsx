@@ -52,21 +52,27 @@ describe('TankLevelBar', () => {
   });
 
   // Tank level to też "karta metryki" w sensie decyzji #16 (Concept.md) — jej
-  // alarm (np. zbyt niski poziom) musi tak samo pulsować jak MetricCard.
-  test('alarm=true dodaje animate-pulse-subtle i czerwone wypełnienie', () => {
+  // alarm (np. zbyt niski poziom) musi tak samo migać jak MetricCard.
+  test('alarm=true dodaje animate-alarm-flash i czerwone wypełnienie', () => {
     const { container } = render(<TankLevelBar valueCm={100} maxCm={200} alarm />);
     const root = container.firstElementChild as HTMLElement;
     const fill = container.querySelector('[data-testid="tank-level-fill"]') as HTMLElement;
-    expect(root).toHaveClass('animate-pulse-subtle');
+    expect(root).toHaveClass('animate-alarm-flash');
     expect(fill.className).toMatch(/bg-rose/);
   });
 
-  test('alarm=false zachowuje domyślne niebieskie wypełnienie bez pulsowania', () => {
+  test('alarm=false zachowuje domyślne niebieskie wypełnienie bez migania', () => {
     const { container } = render(<TankLevelBar valueCm={100} maxCm={200} />);
     const root = container.firstElementChild as HTMLElement;
     const fill = container.querySelector('[data-testid="tank-level-fill"]') as HTMLElement;
-    expect(root).not.toHaveClass('animate-pulse-subtle');
+    expect(root).not.toHaveClass('animate-alarm-flash');
     expect(fill.className).toMatch(/bg-blue/);
+  });
+
+  test('wartość ujemna jest przycinana do 0 na potrzeby wyświetlania (szum PLC, wyświetlanie nie wpływa na wypełnienie)', () => {
+    render(<TankLevelBar valueCm={-5} maxCm={200} />);
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('-5')).not.toBeInTheDocument();
   });
 
   test('przyjmuje testId przekazywany jako data-testid na korzeniu', () => {
@@ -102,11 +108,11 @@ describe('TankLevelBar', () => {
       expect(fill.style.height).toBe('25%');
     });
 
-    test('compact + alarm=true nadal pulsuje i wypełnia na czerwono', () => {
+    test('compact + alarm=true nadal miga i wypełnia na czerwono', () => {
       const { container } = render(<TankLevelBar valueCm={100} maxCm={200} alarm compact />);
       const root = container.firstElementChild as HTMLElement;
       const fill = container.querySelector('[data-testid="tank-level-fill"]') as HTMLElement;
-      expect(root).toHaveClass('animate-pulse-subtle');
+      expect(root).toHaveClass('animate-alarm-flash');
       expect(fill.className).toMatch(/bg-rose/);
     });
 

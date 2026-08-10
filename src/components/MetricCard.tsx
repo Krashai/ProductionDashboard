@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowDown, ArrowUp, Info, Minus, type LucideIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { clampNonNegative, cn } from '@/lib/utils';
 import { Counter } from '@/components/Counter';
 import { Sparkline } from '@/components/Sparkline';
 import {
@@ -10,14 +10,17 @@ import {
   overviewCardStateClasses,
 } from '@/lib/overview-card-state';
 
-export type MetricCardColor = 'emerald' | 'blue' | 'rose' | 'amber' | 'slate';
+// Zawężone do 'rose' | 'slate' (decyzja użytkownika, sierpień 2026): jedyny
+// kolor, który kiedykolwiek coś sygnalizuje, to rose przy alarmie — dawne
+// warianty per kategoria metryki (emerald/blue/amber) zostały usunięte razem
+// z propem `color` (patrz niżej), bo nic już ich nie przekazuje.
+export type MetricCardColor = 'rose' | 'slate';
 
 interface MetricCardProps {
   label: string;
   value: number;
   unit?: string;
   decimals?: number;
-  color: MetricCardColor;
   /** Decyzja #16 (Concept.md): tylko ta konkretna karta pulsuje, nic więcej. */
   alarm?: boolean;
   /** Brak połączenia z obszarem — wartość nie jest wiarygodna, więc jest ukryta. */
@@ -32,14 +35,10 @@ interface MetricCardProps {
   className?: string;
 }
 
-// Nadal eksportowane — `OverviewView.tsx` (poza zakresem tej zmiany) używa tej
-// mapy do stylowania własnej ikony, więc usunięcie/zawężenie złamałoby tamten
-// ekran.
+// Nadal eksportowane — `OverviewView.tsx` używa tej mapy do stylowania
+// własnej ikony (SectionHeading), więc usunięcie złamałoby tamten ekran.
 export const COLOR_MAP: Record<MetricCardColor, string> = {
-  emerald: 'text-emerald-600 bg-emerald-50 border-emerald-100',
-  blue: 'text-blue-600 bg-blue-50 border-blue-100',
   rose: 'text-rose-600 bg-rose-50 border-rose-100',
-  amber: 'text-amber-600 bg-amber-50 border-amber-100',
   slate: 'text-slate-600 bg-slate-50 border-slate-100',
 };
 
@@ -67,7 +66,6 @@ export function MetricCard({
   value,
   unit,
   decimals = 1,
-  color,
   alarm = false,
   offline = false,
   history,
@@ -77,10 +75,10 @@ export function MetricCard({
   testId,
   className,
 }: MetricCardProps) {
-  // Alarm bije wybrany kolor bazowy — akcent rose ma priorytet wizualny,
-  // żeby stan błędu było widać niezależnie od tego, jaki kolor ma ta metryka
-  // normalnie (np. blue dla temperatury).
-  const effectiveColor: MetricCardColor = alarm ? 'rose' : color;
+  // Ujednolicenie kolorystyki (decyzja użytkownika, sierpień 2026): odznaka
+  // ikony jest neutralna (slate) w spoczynku i rose wyłącznie w alarmie —
+  // dawny kolor bazowy per kategoria metryki już tu nie wpływa na nic.
+  const effectiveColor: MetricCardColor = alarm ? 'rose' : 'slate';
 
   // Wariant `compact` (overview, decyzja #22) zostaje bez zmian co do
   // zachowania/propsów/testów — osobna, większa decyzja o jego dalszym
@@ -92,7 +90,7 @@ export function MetricCard({
         className={cn(
           'group relative bg-white border shadow-sm transition-all duration-500 flex flex-col',
           'rounded-xl 2xl:rounded-2xl p-3 2xl:p-7 gap-1 2xl:gap-3',
-          alarm ? 'border-rose-200 animate-pulse-subtle motion-reduce:animate-none' : 'border-slate-200',
+          alarm ? 'border-rose-200 animate-alarm-flash motion-reduce:animate-none' : 'border-slate-200',
           offline && 'grayscale-[0.5] opacity-75',
           className
         )}
@@ -137,8 +135,12 @@ export function MetricCard({
             {label}
           </p>
           <div className="flex items-baseline justify-center gap-2">
-            <span className="font-black text-slate-900 tracking-tighter tabular-nums leading-none text-xl 2xl:text-5xl">
-              {offline ? <span className="text-slate-500">—</span> : <Counter value={value} decimals={decimals} />}
+            <span className="font-black font-mono text-slate-900 tracking-tighter tabular-nums leading-none text-xl 2xl:text-5xl">
+              {offline ? (
+                <span className="text-slate-500">—</span>
+              ) : (
+                <Counter value={clampNonNegative(value)} decimals={decimals} />
+              )}
             </span>
             {unit && (
               <span className="font-black text-slate-500 uppercase tracking-tighter text-[10px] 2xl:text-xl">
@@ -160,11 +162,11 @@ export function MetricCard({
       className={cn(
         'group relative overflow-hidden flex flex-col transition-all duration-500 rounded-[2.5rem] p-6 2xl:p-8',
         overviewCardStateClasses(alarm, offline),
-        overviewAccentGlowShadow(color, alarm),
+        overviewAccentGlowShadow(alarm),
         className
       )}
     >
-      <span aria-hidden="true" className={overviewAccentBarClasses(color, alarm)} />
+      <span aria-hidden="true" className={overviewAccentBarClasses(alarm)} />
 
       {(Icon || tooltip) && (
         <div className="relative z-10 flex items-start justify-between shrink-0 mb-2">
@@ -204,8 +206,12 @@ export function MetricCard({
        * dystansu co overview, więc obie ścieżki powinny wyglądać spójnie. */}
       <div className="relative z-10 flex-1 flex flex-col justify-center items-center text-center py-4">
         <div className="flex items-baseline justify-center gap-2">
-          <span className="font-black text-slate-900 tracking-tighter tabular-nums leading-none text-6xl 2xl:text-7xl">
-            {offline ? <span className="text-slate-500">—</span> : <Counter value={value} decimals={decimals} />}
+          <span className="font-black font-mono text-slate-900 tracking-tighter tabular-nums leading-none text-6xl 2xl:text-7xl">
+            {offline ? (
+              <span className="text-slate-500">—</span>
+            ) : (
+              <Counter value={clampNonNegative(value)} decimals={decimals} />
+            )}
           </span>
           {unit && (
             <span className="font-black text-slate-500 uppercase tracking-tighter text-xl 2xl:text-2xl">

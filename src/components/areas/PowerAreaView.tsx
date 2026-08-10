@@ -1,5 +1,4 @@
 import { MetricCard } from '@/components/MetricCard';
-import { metricColorForUnit } from '@/lib/metric-color';
 import type { AreaDefinition } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
 
@@ -32,7 +31,6 @@ export function PowerAreaView({ area, definition }: PowerAreaViewProps) {
           value={metric.value}
           unit={metric.unit}
           decimals={metric.decimals}
-          color={metricColorForUnit(metric.unit)}
           alarm={metric.alarm}
           offline={offline}
           history={metric.history}

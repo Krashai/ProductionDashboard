@@ -73,8 +73,8 @@ describe('PowerAreaView', () => {
     const alarmCard = container.querySelector('[data-testid="metric-card-trafostacja-2-apparent"]');
     const otherCard = container.querySelector('[data-testid="metric-card-trafostacja-1-active"]');
 
-    expect(alarmCard).toHaveClass('animate-pulse-subtle');
-    expect(otherCard).not.toHaveClass('animate-pulse-subtle');
+    expect(alarmCard).toHaveClass('animate-alarm-flash');
+    expect(otherCard).not.toHaveClass('animate-alarm-flash');
   });
 
   test('isOnline===false propaguje offline do wszystkich 6 kart', () => {
