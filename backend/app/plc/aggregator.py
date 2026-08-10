@@ -14,6 +14,37 @@ from typing import Any
 
 from app.domain.areas import AREA_DEFINITIONS
 
+# The 6 power metrics (moc czynna/pozorna for each of 3 trafostacje) are
+# polled from the PLC in raw Watts/VA, but MetricDefinition.unit for these
+# advertises kW/kVA (see app.domain.areas._power_area). Both the payload's
+# displayed `value` and the ThresholdRule min/max comparison must agree on
+# the same (scaled) number, so the conversion lives here, applied once,
+# before either consumer sees the value — see _scale_metric_value.
+_POWER_SCALE_FACTOR = 1000.0
+_POWER_METRIC_IDS: frozenset[str] = frozenset(
+    f"trafostacja-{n}-{kind}" for n in (1, 2, 3) for kind in ("active", "apparent")
+)
+
+
+def _tag_value(tag: dict, live_snapshot: dict[int, dict]) -> Any:
+    """Raw reading for `tag` from the live PLC snapshot, before any unit
+    scaling. Returns None if the tag's PLC is offline / not polled."""
+    plc_state = live_snapshot.get(tag["plc_id"], {})
+    return plc_state.get("tag_values", {}).get(tag["name"])
+
+
+def _scale_metric_value(metric_id: str, value: Any) -> Any:
+    """Convert a raw PLC reading into the unit advertised by
+    MetricDefinition.unit, for the handful of metrics where they differ
+    (currently just the 6 power metrics: raw Watts/VA -> kW/kVA).
+
+    A None reading (tag not configured / PLC offline) is always passed
+    through unchanged — never coerce a missing value into 0.0.
+    """
+    if value is None or metric_id not in _POWER_METRIC_IDS:
+        return value
+    return value / _POWER_SCALE_FACTOR
+
 
 def _format_range(min_: float | None, max_: float | None) -> str:
     if min_ is not None and max_ is not None:
@@ -78,8 +109,7 @@ def build_area_payload(
         cached = _alarm_cache.get(tag["id"])
         if cached is not None:
             return cached
-        plc_state = live_snapshot.get(tag["plc_id"], {})
-        value = plc_state.get("tag_values", {}).get(tag["name"])
+        value = _scale_metric_value(tag["metric_id"], _tag_value(tag, live_snapshot))
         threshold_rule = threshold_by_tag_id.get(tag["id"])
         bit_rules = bit_alarms_by_tag_id.get(tag["id"], [])
         if threshold_rule is not None:
@@ -120,7 +150,7 @@ def build_area_payload(
             alarm = False
             alarm_description: str | None = None
             if tag is not None:
-                value = live_snapshot.get(tag["plc_id"], {}).get("tag_values", {}).get(tag["name"])
+                value = _scale_metric_value(metric_id, _tag_value(tag, live_snapshot))
                 alarm, alarm_description = _tag_alarm(tag)
 
             metrics[metric_id] = {

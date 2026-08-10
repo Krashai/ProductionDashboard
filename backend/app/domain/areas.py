@@ -98,7 +98,7 @@ def _power_area() -> AreaDefinition:
                 "id": f"trafostacja-{n}-active",
                 "label": f"Trafostacja {n} — Moc czynna",
                 "unit": "kW",
-                "decimals": 0,
+                "decimals": 1,
             }
         )
         metrics.append(
@@ -106,7 +106,7 @@ def _power_area() -> AreaDefinition:
                 "id": f"trafostacja-{n}-apparent",
                 "label": f"Trafostacja {n} — Moc pozorna",
                 "unit": "kVA",
-                "decimals": 0,
+                "decimals": 1,
             }
         )
     return {
@@ -118,9 +118,9 @@ def _power_area() -> AreaDefinition:
 
 
 AREA_DEFINITIONS: list[AreaDefinition] = [
-    _cooling_area("chlodnia-1", "Chłodnia 1", 250),
-    _cooling_area("chlodnia-2", "Chłodnia 2", 250),
-    _cooling_area("chlodnia-3", "Chłodnia 3", 250),
+    _cooling_area("chlodnia-1", "Chłodnia 1", 150),
+    _cooling_area("chlodnia-2", "Chłodnia 2", 150),
+    _cooling_area("chlodnia-3", "Chłodnia 3", 150),
     _compressor_area(),
     _power_area(),
 ]

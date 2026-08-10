@@ -54,6 +54,9 @@ def test_power_area_has_six_metrics_two_per_substation():
         "trafostacja-3-active",
         "trafostacja-3-apparent",
     }
+    # decimals=1 keeps useful precision once the raw Watt/VA reading is
+    # scaled down to kW/kVA (e.g. 44439 raw -> 44.4, not 44).
+    assert all(m["decimals"] == 1 for m in area["metrics"])
 
 
 def test_metric_to_area_reverse_lookup_covers_every_metric():
@@ -66,4 +69,4 @@ def test_metric_to_area_reverse_lookup_covers_every_metric():
 def test_cooling_areas_carry_max_cm_tank_scale():
     for area_id in ("chlodnia-1", "chlodnia-2", "chlodnia-3"):
         area = next(a for a in AREA_DEFINITIONS if a["id"] == area_id)
-        assert area["max_cm"] == 250
+        assert area["max_cm"] == 150

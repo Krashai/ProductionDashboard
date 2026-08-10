@@ -2,6 +2,8 @@
 (plcs, tags, threshold_rules, bit_alarm_rules, live_snapshot) into the
 area-grouped WS/`/status` payload shape from NewBackendPlan.md §4.
 """
+import pytest
+
 from app.plc.aggregator import build_area_payload
 from app.domain.areas import AREA_IDS
 
@@ -281,6 +283,130 @@ def test_missing_value_never_triggers_alarm():
     metric = next(a for a in payload if a["area_id"] == "chlodnia-1")["metrics"]["chlodnia-1-temp"]
     assert metric["value"] is None
     assert metric["alarm"] is False
+
+
+def test_power_metric_value_is_scaled_from_raw_watts_to_kw():
+    """The PLC reports trafostacja active/apparent power in raw Watts/VA,
+    but the metric's advertised unit is kW/kVA — build_area_payload must
+    divide by 1000 before the value ever reaches the payload."""
+    plcs = [{"id": 1, "area_id": "energia-elektryczna"}]
+    tags = [
+        {
+            "id": 30,
+            "plc_id": 1,
+            "name": "Trafo1_Active",
+            "metric_id": "trafostacja-1-active",
+            "label": "Trafostacja 1 — Moc czynna",
+            "unit": "kW",
+            "decimals": 1,
+        }
+    ]
+    live_snapshot = {1: {"online": True, "tag_values": {"Trafo1_Active": 44439}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    metric = next(a for a in payload if a["area_id"] == "energia-elektryczna")["metrics"][
+        "trafostacja-1-active"
+    ]
+    assert metric["value"] == pytest.approx(44.439)
+
+
+def test_power_metric_threshold_alarm_compares_against_scaled_kw_value():
+    """A ThresholdRule.max the operator set thinking in kW (e.g. 50) must
+    be compared against the scaled kW value, not the raw Watts reading —
+    otherwise 44439 raw Watts would incorrectly breach a max=50 rule."""
+    plcs = [{"id": 1, "area_id": "energia-elektryczna"}]
+    tags = [
+        {
+            "id": 30,
+            "plc_id": 1,
+            "name": "Trafo1_Active",
+            "metric_id": "trafostacja-1-active",
+            "label": "Trafostacja 1 — Moc czynna",
+            "unit": "kW",
+            "decimals": 1,
+        }
+    ]
+    threshold_rules = [{"tag_id": 30, "min": None, "max": 50.0}]
+    live_snapshot = {1: {"online": True, "tag_values": {"Trafo1_Active": 44439}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs,
+        tags=tags,
+        threshold_rules=threshold_rules,
+        bit_alarm_rules=[],
+        live_snapshot=live_snapshot,
+    )
+    metric = next(a for a in payload if a["area_id"] == "energia-elektryczna")["metrics"][
+        "trafostacja-1-active"
+    ]
+    # 44.439 kW is within max=50 -> no alarm. Naive raw-value comparison
+    # (44439 > 50) would have incorrectly fired.
+    assert metric["alarm"] is False
+
+    threshold_rules_low = [{"tag_id": 30, "min": None, "max": 30.0}]
+    payload_low = build_area_payload(
+        plcs=plcs,
+        tags=tags,
+        threshold_rules=threshold_rules_low,
+        bit_alarm_rules=[],
+        live_snapshot=live_snapshot,
+    )
+    metric_low = next(a for a in payload_low if a["area_id"] == "energia-elektryczna")["metrics"][
+        "trafostacja-1-active"
+    ]
+    # 44.439 kW breaches max=30 -> alarm fires against the scaled value.
+    assert metric_low["alarm"] is True
+
+
+def test_power_metric_none_value_stays_none_after_scaling():
+    plcs = [{"id": 1, "area_id": "energia-elektryczna"}]
+    tags = [
+        {
+            "id": 30,
+            "plc_id": 1,
+            "name": "Trafo1_Active",
+            "metric_id": "trafostacja-1-active",
+            "label": "Trafostacja 1 — Moc czynna",
+            "unit": "kW",
+            "decimals": 1,
+        }
+    ]
+    live_snapshot = {1: {"online": False, "tag_values": {}, "error": "timeout"}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    metric = next(a for a in payload if a["area_id"] == "energia-elektryczna")["metrics"][
+        "trafostacja-1-active"
+    ]
+    assert metric["value"] is None
+    assert metric["alarm"] is False
+
+
+def test_non_power_metric_is_unaffected_by_scaling():
+    """A cooling-area temperature tag must pass through unscaled — the
+    conversion only applies to the 6 trafostacja power metric_ids."""
+    plcs = [{"id": 1, "area_id": "chlodnia-1"}]
+    tags = [
+        {
+            "id": 10,
+            "plc_id": 1,
+            "name": "Temp_Hala",
+            "metric_id": "chlodnia-1-temp",
+            "label": "Temp",
+            "unit": "°C",
+            "decimals": 1,
+        }
+    ]
+    live_snapshot = {1: {"online": True, "tag_values": {"Temp_Hala": 44439}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    metric = next(a for a in payload if a["area_id"] == "chlodnia-1")["metrics"]["chlodnia-1-temp"]
+    assert metric["value"] == 44439
 
 
 def test_tag_from_wrong_area_never_leaks_onto_a_different_areas_metric_card():
