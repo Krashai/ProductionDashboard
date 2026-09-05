@@ -179,6 +179,109 @@ describe('Wallboard — tryb pinned (?area=...)', () => {
   });
 });
 
+describe('Wallboard — navbar (jeden rząd chrome)', () => {
+  test('cały chrome mieści się w JEDNYM elemencie navbaru — brak osobnego rzędu tytułu', () => {
+    const { container } = render(<Wallboard />);
+    const navbar = container.querySelector('[data-testid="wallboard-navbar"]') as HTMLElement;
+
+    expect(navbar).toBeInTheDocument();
+    // Nazwa obszaru, kropka statusu, link powrotny i kontrolki karuzeli muszą
+    // siedzieć WEWNĄTRZ navbaru — gdyby któreś wróciło do własnego rzędu pod
+    // spodem, ten test złapie regresję wysokości chrome.
+    expect(navbar.querySelector('h2')).toBeInTheDocument();
+    expect(navbar.querySelector('[data-testid="wallboard-back-link"]')).toBeInTheDocument();
+    expect(navbar.textContent).toContain('Obszar online');
+    expect(navbar.textContent).toContain('LIVE');
+    expect(navbar.textContent).toContain('1/5');
+
+    // Treść obszaru jest rodzeństwem navbaru, nie jego dzieckiem.
+    const content = container.querySelector('[data-testid="wallboard-content"]') as HTMLElement;
+    expect(content).toBeInTheDocument();
+    expect(navbar.contains(content)).toBe(false);
+    expect(content).toHaveClass('flex-1');
+    expect(content).toHaveClass('min-h-0');
+  });
+
+  test('nazwa obszaru zachowuje kioskowy stopień czcionki (text-3xl / 2xl:text-5xl)', () => {
+    render(<Wallboard />);
+    const heading = screen.getByRole('heading', { name: AREAS[0].name });
+    // W karuzeli nagłówek opakowuje przycisk aktywnej zakładki — klasa
+    // rozmiaru siedzi na elemencie niosącym tekst, nie na samym <h2>.
+    const titled = (heading.querySelector('button, span') ?? heading) as HTMLElement;
+    expect(titled.className).toContain('text-3xl');
+    expect(titled.className).toContain('2xl:text-5xl');
+    expect(titled.className).toContain('font-black');
+  });
+
+  test('sr-only <h1> identyfikujące stronę przetrwało restrukturyzację', () => {
+    const { container } = render(<Wallboard />);
+    const h1 = container.querySelector('h1.sr-only') as HTMLElement;
+    expect(h1).toBeInTheDocument();
+    expect(h1).toHaveTextContent(`DashboardApp — ${AREAS[0].name}`);
+    expect(document.title).toBe(`DashboardApp — ${AREAS[0].name}`);
+  });
+});
+
+describe('Wallboard — link powrotny do przeglądu', () => {
+  test('renderuje link do "/" z widoczną nazwą dostępną w trybie carousel', () => {
+    render(<Wallboard />);
+    const back = screen.getByRole('link', { name: /przegląd/i });
+    expect(back).toHaveAttribute('href', '/');
+    expect(back).toHaveAttribute('data-testid', 'wallboard-back-link');
+  });
+
+  test('renderuje link do "/" również w trybie pinned', () => {
+    setSearchParams('area=chlodnia-2');
+    render(<Wallboard />);
+    const back = screen.getByRole('link', { name: /przegląd/i });
+    expect(back).toHaveAttribute('href', '/');
+  });
+
+  test('ma widoczny pierścień fokusa i feedback naciśnięcia (DesignGuideline §4/§6)', () => {
+    setSearchParams('area=chlodnia-2');
+    render(<Wallboard />);
+    const back = screen.getByTestId('wallboard-back-link');
+    expect(back.className).toContain('focus-visible:ring-2');
+    expect(back.className).toContain('active:scale-95');
+    // Ikona jest dekoracyjna — nazwa dostępna linku pochodzi z etykiety
+    // tekstowej, nie z aria-label na ikonie.
+    expect(back.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  test('nie jest pigułką obszaru z ekranu przeglądu (decyzja #37/#42g) — brak ikony Pin', () => {
+    setSearchParams('area=chlodnia-2');
+    render(<Wallboard />);
+    const back = screen.getByTestId('wallboard-back-link');
+    expect(back.className).not.toContain('rounded-full');
+    expect(back).not.toHaveTextContent(/chłodnia|sprężarkownia|energia/i);
+  });
+});
+
+describe('Wallboard — aktywna zakładka karuzeli JEST tytułem', () => {
+  test('aktywny obszar jest jednocześnie nagłówkiem i przyciskiem zakładki', () => {
+    render(<Wallboard />);
+    const heading = screen.getByRole('heading', { name: AREAS[0].name });
+    const button = screen.getByRole('button', { name: AREAS[0].name });
+    expect(heading.contains(button)).toBe(true);
+    expect(button).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('pasek zakładek nie powtarza nazwy aktywnego obszaru małym drukiem', () => {
+    render(<Wallboard />);
+    expect(screen.getAllByText(AREAS[0].name)).toHaveLength(1);
+  });
+
+  test('każdy z 5 obszarów pozostaje osiągalny jednym kliknięciem', () => {
+    render(<Wallboard />);
+    for (const area of AREAS) {
+      expect(screen.getByRole('button', { name: area.name })).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole('button', { name: AREAS[4].name }));
+    expect(screen.getByText('5/5')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: AREAS[4].name })).toBeInTheDocument();
+  });
+});
+
 describe('Wallboard — layout kiosku bez scrolla', () => {
   test('korzeń ma h-screen i overflow-hidden, treść ma flex-1 min-h-0, AlarmBar ma shrink-0', () => {
     const { container } = render(<Wallboard />);

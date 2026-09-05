@@ -70,7 +70,7 @@ def test_update_tag_rejects_metric_id_from_a_different_area(client):
     tag = client.post("/api/tags", json=_tag_payload(plc["id"])).json()
 
     resp = client.put(
-        f"/api/tags/{tag['id']}", json=_tag_payload(plc["id"], metric_id="sprezarkownia-drums")
+        f"/api/tags/{tag['id']}", json=_tag_payload(plc["id"], metric_id="sprezarkownia-magazyn-aluminium-cisnienie-zbiornik")
     )
     assert resp.status_code == 409
 

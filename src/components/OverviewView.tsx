@@ -213,7 +213,29 @@ function CoolingRow({
 
 function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined }) {
   const offline = snapshot ? !snapshot.isOnline : false;
-  const metrics = snapshot?.metrics ?? [];
+  // Sierpień 2026: Sprężarkownia dostała kafle urządzeń (PRACA/AWARIA per
+  // sprężarka, unit="") obok swoich metryk analogowych (ciśnienie/przepływ),
+  // ten sam wzorzec co Chłodnia 1/2/3 (`src/lib/areas.ts`). Overview pokazuje
+  // wyłącznie odczyty analogowe — bity urządzeń mają swój ekran szczegółowy
+  // (`CompressorAreaView`), tu wylądowałyby jako bezsensowne kafle "0"/"1".
+  //
+  // Z odczytów analogowych overview bierze DOKŁADNIE DWA — ciśnienie zbiornika
+  // per magazyn — zgodnie z decyzją #28 (Concept.md: "Sprężarkownia na overview:
+  // DWIE osobne karty"). Ciśnienie kolektora i przepływ powietrza (dołożone do
+  // rejestru w sierpniu 2026) należą wyłącznie do ekranu szczegółowego.
+  //
+  // To NIE jest kosmetyka, tylko naprawa realnej regresji: filtr po samym
+  // `unit !== ''` przepuścił nowe metryki i prawa kolumna urosła z 1 rzędu
+  // kafli do 2. Nadrzędny grid ma `content-between`, więc przy ujemnej wolnej
+  // przestrzeni `space-between` rozkłada ujemny odstęp i **nakłada wiersze na
+  // siebie** — sekcja Energii wchodziła na Sprężone powietrze. Ujawniało się
+  // dopiero przy szerokim, ale niskim oknie (tier `2xl` + wysokość ≲960px,
+  // czyli zwykłe okno przeglądarki na monitorze 1080p), dlatego weryfikacja
+  // na pełnych rozdzielczościach 768/1080/1440 tego nie wyłapała.
+  const OVERVIEW_METRIC_SUFFIXES = ['-cisnienie-zbiornik'];
+  const metrics = (snapshot?.metrics ?? []).filter(
+    (m) => m.unit !== '' && OVERVIEW_METRIC_SUFFIXES.some((s) => m.id.endsWith(s))
+  );
 
   return (
     <section className="min-h-0 shrink-0">
@@ -228,7 +250,11 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
           <OverviewMetricTile
             key={metric.id}
             testId={`overview-metric-tile-${metric.id}`}
-            label={metric.label}
+            // "Magazyn Aluminium — Ciśnienie zbiornik" → "Magazyn Aluminium":
+            // nagłówek sekcji ("Sprężone powietrze") już mówi, o jaki odczyt
+            // chodzi, a makieta z decyzji #28 podpisuje te kafle samą nazwą
+            // magazynu. Ten sam idiom co w `PowerSection` niżej.
+            label={metric.label.split(' — ')[0]}
             value={metric.value}
             unit={metric.unit}
             decimals={metric.decimals}

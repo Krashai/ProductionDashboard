@@ -10,6 +10,15 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // Domyślny `2xl` (1536px) obejmuje ZARÓWNO 1920×1080 jak i 2560×1440 —
+      // dwie z trzech docelowych rozdzielczości kiosku, między którymi kafel
+      // siatki trafostacji rośnie ze 170 do 223 px szerokości. Jeden stopień
+      // czcionki nie obsłuży obu (na 2560 zostaje martwe pole, na 1920
+      // jednostka zawija się pod liczbę), więc 2560 dostaje własny próg.
+      // Dodane addytywnie — żadna istniejąca klasa nie używa `3xl:`.
+      screens: {
+        '3xl': '2200px',
+      },
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",

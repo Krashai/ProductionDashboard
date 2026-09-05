@@ -1,3 +1,5 @@
+import { AREAS } from '@/lib/areas';
+import { coolingSuppressedAlarmMetricIds } from '@/lib/device-status';
 import { cn } from '@/lib/utils';
 import type { AlarmState, AreaSnapshot } from '@/lib/types';
 
@@ -9,18 +11,26 @@ interface AlarmBarProps {
 /**
  * Decyzja #15 (Concept.md): pasek jest niezależny od pozycji karuzeli — zbiera
  * alarmy ze WSZYSTKICH obszarów naraz, nie tylko z aktualnie widocznego.
+ *
+ * Wycisza te same metryki co karta chłodni dla wyłączonej chłodni (patrz
+ * `coolingSuppressedAlarmMetricIds` w `src/lib/device-status.ts`) — bez tego
+ * karta obszaru poprawnie ukrywała alarm temperatury/ciśnienia, ale ten
+ * globalny pasek (widoczny niezależnie od tego, co akurat pokazuje karuzela)
+ * nadal pulsowałby chipem dla tej samej, już wyjaśnionej sytuacji.
  */
 export function collectAlarms(areas: AreaSnapshot[]): AlarmState[] {
-  return areas.flatMap((area) =>
-    area.metrics
-      .filter((metric) => metric.alarm)
+  return areas.flatMap((area) => {
+    const definition = AREAS.find((a) => a.id === area.id);
+    const suppressed = definition ? coolingSuppressedAlarmMetricIds(definition, area.metrics) : new Set<string>();
+    return area.metrics
+      .filter((metric) => metric.alarm && !suppressed.has(metric.id))
       .map((metric) => ({
         areaId: area.id,
         areaName: area.name,
         metricId: metric.id,
         metricLabel: metric.label,
-      }))
-  );
+      }));
+  });
 }
 
 export function AlarmBar({ areas, className }: AlarmBarProps) {

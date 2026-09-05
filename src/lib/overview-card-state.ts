@@ -49,3 +49,40 @@ export function overviewAccentBarClasses(alarm: boolean): string {
 export function overviewAccentGlowShadow(alarm: boolean): string {
   return alarm ? ALARM_GLOW_SHADOW : '';
 }
+
+/**
+ * Świadomy, udokumentowany wyjątek od zasady "tylko rose kiedykolwiek
+ * sygnalizuje coś" (patrz komentarz przy `overviewAccentBarClasses`) —
+ * zaakceptowany przez użytkownika przy projektowaniu kafli urządzeń
+ * (Chłodnia 1/2/3, sierpień 2026). Operator musi jednym rzutem oka
+ * odróżnić "urządzenie pracuje" od "urządzenie stoi", więc PRACA dostaje
+ * osobny, stały (bez migania) kolor — emerald. AWARIA zostaje jedynym
+ * stanem, który miga (`overviewCardStateClasses`/`animate-alarm-flash`).
+ */
+export function deviceRunningDotClasses(running: boolean): string {
+  return cn('rounded-full', running ? 'bg-emerald-500' : 'bg-slate-300');
+}
+
+/**
+ * Pasek akcentu kafla urządzenia (decyzja użytkownika, sierpień 2026):
+ * rozszerzenie wyjątku z `deviceRunningDotClasses` na pasek boczny kafla —
+ * PRACA dostaje emerald (stały, bez migania — to stan normalny, nie alarm),
+ * AWARIA zachowuje rose+`animate-alarm-flash` z pierwszeństwem nad PRACA
+ * (urządzenie może migać AWARIA niezależnie od bitu PRACA — nie są
+ * fizycznie wykluczające się w danych PLC). Bez żadnego stanu — neutralny
+ * `bg-slate-300` (audyt UX, sierpień 2026 — poprzednio całkowicie
+ * przezroczysty pasek był nieodróżnialny od "brak danych/nieznany stan" i
+ * łamał heurystykę Nielsena "visibility of system status"; ten sam szary co
+ * `deviceRunningDotClasses` w stanie spoczynku, więc kafel ma jeden spójny
+ * język 3 kolorów: emerald = praca, slate-300 = stop/OK, rose = awaria).
+ * Świadomie osobna funkcja od `overviewAccentBarClasses` (ta zostaje
+ * generyczna, tylko alarm/brak, używana przez OverviewMetricTile/
+ * OverviewTankTile) — DeviceStatusTile jest jedynym kaflem z trzecim,
+ * pozytywnym stanem koloru paska.
+ */
+export function deviceAccentBarClasses(running: boolean, fault: boolean): string {
+  return cn(
+    'absolute left-0 top-0 bottom-0 z-20 w-1.5 xl:w-2 transition-colors duration-500',
+    fault ? 'bg-rose-500' : running ? 'bg-emerald-500' : 'bg-slate-300'
+  );
+}

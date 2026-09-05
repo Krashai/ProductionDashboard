@@ -33,19 +33,23 @@ describe('AreaView', () => {
     expect(container.querySelector('[data-testid^="tank-level-"]')).toBeInTheDocument();
   });
 
-  test('dla type=compressor renderuje CompressorAreaView (jedna karta "Ciśnienie sieci")', () => {
+  test('dla type=compressor renderuje CompressorAreaView (2 sekcje: Magazyn Aluminium/Bębnów)', () => {
     const definition = AREAS.find((a) => a.type === 'compressor')!;
-    const { container } = render(
+    const { container, getByText } = render(
       <AreaView area={snapshotFor(definition.id)} definition={definition} />
     );
-    expect(container.querySelector('[data-testid="compressor-pressure-card"]')).toBeInTheDocument();
+    expect(getByText('Magazyn Aluminium')).toBeInTheDocument();
+    expect(getByText('Magazyn Bębnów')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="device-tile-aluminium-1"]')).toBeInTheDocument();
   });
 
-  test('dla type=power renderuje PowerAreaView (6 kart)', () => {
+  test('dla type=power renderuje PowerAreaView (3 karty kafli, jedna na trafostację)', () => {
     const definition = AREAS.find((a) => a.type === 'power')!;
     const { container } = render(
       <AreaView area={snapshotFor(definition.id)} definition={definition} />
     );
-    expect(container.querySelectorAll('[data-testid^="metric-card-"]')).toHaveLength(6);
+    expect(
+      container.querySelectorAll('[data-testid^="substation-card-trafostacja-"]')
+    ).toHaveLength(3);
   });
 });

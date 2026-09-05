@@ -119,4 +119,16 @@ describe('OverviewTankTile', () => {
     const fill = container.querySelector('[data-testid="overview-tank-fill-tank-f"]') as HTMLElement;
     expect(fill.className).toMatch(/bg-blue/);
   });
+
+  test('size domyślne (brak propa) renderuje tekst wartości w text-4xl', () => {
+    render(<OverviewTankTile valueCm={95} maxCm={110} />);
+    expect(screen.getByText('95').className).toMatch(/text-4xl/);
+  });
+
+  test('size="lg" (ekran szczegółowy Chłodni 1/2/3) renderuje większy tekst wartości', () => {
+    render(<OverviewTankTile valueCm={95} maxCm={110} size="lg" />);
+    const valueEl = screen.getByText('95');
+    expect(valueEl.className).toMatch(/text-6xl/);
+    expect(valueEl.className).not.toMatch(/text-4xl/);
+  });
 });

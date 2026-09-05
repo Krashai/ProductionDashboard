@@ -14,15 +14,17 @@ from typing import Any
 
 from app.domain.areas import AREA_DEFINITIONS
 
-# The 6 power metrics (moc czynna/pozorna for each of 3 trafostacje) are
-# polled from the PLC in raw Watts/VA, but MetricDefinition.unit for these
-# advertises kW/kVA (see app.domain.areas._power_area). Both the payload's
-# displayed `value` and the ThresholdRule min/max comparison must agree on
-# the same (scaled) number, so the conversion lives here, applied once,
-# before either consumer sees the value — see _scale_metric_value.
+# The 9 power metrics (moc czynna/bierna/pozorna for each of 3 trafostacje)
+# are polled from the PLC in raw Watts/VAr/VA, but MetricDefinition.unit for
+# these advertises kW/kVAr/kVA (see app.domain.areas._power_area). Both the
+# payload's displayed `value` and the ThresholdRule min/max comparison must
+# agree on the same (scaled) number, so the conversion lives here, applied
+# once, before either consumer sees the value — see _scale_metric_value.
+# `reactive` (moc bierna) was added alongside active/apparent from the same
+# power-meter register block and needs the identical raw->kilo scaling.
 _POWER_SCALE_FACTOR = 1000.0
 _POWER_METRIC_IDS: frozenset[str] = frozenset(
-    f"trafostacja-{n}-{kind}" for n in (1, 2, 3) for kind in ("active", "apparent")
+    f"trafostacja-{n}-{kind}" for n in (1, 2, 3) for kind in ("active", "apparent", "reactive")
 )
 
 

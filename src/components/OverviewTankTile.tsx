@@ -10,9 +10,33 @@ interface OverviewTankTileProps {
   maxCm: number;
   alarm?: boolean;
   offline?: boolean;
+  /** Patrz `OverviewMetricTile.size` — ten sam mechanizm/rozmiary, żeby karta
+   * poziomu zbiornika rosła razem z sąsiednimi kartami metryk w tym samym
+   * gridzie (ekran szczegółowy Chłodni 1/2/3). */
+  size?: 'default' | 'lg';
   testId?: string;
   className?: string;
 }
+
+const VALUE_SIZE_CLASSES: Record<'default' | 'lg', string> = {
+  default: 'text-4xl xl:text-5xl 2xl:text-6xl',
+  // Utrzymane w kroku z `OverviewMetricTile.VALUE_SIZE_CLASSES.lg` (ta sama
+  // decyzja, ten sam powód: wypełnić pustą przestrzeń środkową jeszcze
+  // większą liczbą zamiast sparkline'a) — obie karty w tej samej kolumnie
+  // Chłodni 1/2/3 muszą rosnąć razem, inaczej "Poziom" wygląda mniejszy niż
+  // sąsiednie "Temperatura"/"Ciśnienie".
+  lg: 'text-6xl xl:text-7xl 2xl:text-8xl',
+};
+
+const UNIT_SIZE_CLASSES: Record<'default' | 'lg', string> = {
+  default: 'text-sm xl:text-base 2xl:text-xl',
+  lg: 'text-lg xl:text-xl 2xl:text-3xl',
+};
+
+const LABEL_SIZE_CLASSES: Record<'default' | 'lg', string> = {
+  default: 'text-[10px] xl:text-[11px] 2xl:text-sm',
+  lg: 'text-sm xl:text-base 2xl:text-xl',
+};
 
 /**
  * Poziom zbiornika wg makiety (decyzja #27/§6a.1), rozszerzone na prośbę
@@ -43,6 +67,7 @@ export function OverviewTankTile({
   maxCm,
   alarm = false,
   offline = false,
+  size = 'default',
   testId,
   className,
 }: OverviewTankTileProps) {
@@ -72,10 +97,15 @@ export function OverviewTankTile({
       />
       <div className="relative z-10 flex-1 min-h-0 flex flex-col justify-between min-w-0 pl-4 pr-3 py-3 xl:pl-5 xl:pr-4 xl:py-4 2xl:pl-7 2xl:pr-6 2xl:py-6">
         <div className="flex items-baseline gap-1">
-          <span className="text-4xl xl:text-5xl 2xl:text-6xl font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900">
+          <span
+            className={cn(
+              'font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900',
+              VALUE_SIZE_CLASSES[size]
+            )}
+          >
             {offline ? '—' : Math.round(clampNonNegative(valueCm))}
           </span>
-          <span className="text-sm xl:text-base 2xl:text-xl font-bold text-slate-800 lowercase">cm</span>
+          <span className={cn('font-bold text-slate-800 lowercase', UNIT_SIZE_CLASSES[size])}>cm</span>
         </div>
         {/* text-slate-900, nie -600: ta etykieta siedzi na dolnej krawędzi
          * karty, dokładnie tam gdzie zaczyna się kolorowe wypełnienie
@@ -83,7 +113,12 @@ export function OverviewTankTile({
          * zbiorniku. slate-600 mierzył 2.98:1 na bg-blue-400 (audyt
          * dostępności, ustalenie §1) — slate-900 zachowuje kontrast >4.5:1
          * zarówno na białym tle, jak i na wypełnieniu blue-400/rose-400. */}
-        <span className="mt-1 xl:mt-1.5 2xl:mt-2 text-[10px] xl:text-[11px] 2xl:text-sm font-black uppercase tracking-wide text-slate-900 truncate">
+        <span
+          className={cn(
+            'mt-1 xl:mt-1.5 2xl:mt-2 font-black uppercase tracking-wide text-slate-900 truncate',
+            LABEL_SIZE_CLASSES[size]
+          )}
+        >
           Poziom
         </span>
       </div>

@@ -83,16 +83,45 @@ describe('OverviewView — layout wg makiety (Concept.md §6a.1, decyzje #27-30,
     expect(metricTiles.length + tankTiles.length).toBe(15);
   });
 
-  test('Sprężarkownia renderuje DWIE osobne karty, Magazyn Bębnów i Magazyn Aluminium (decyzja #28)', () => {
+  // REGRESJA (sierpień 2026): rozszerzenie rejestru Sprężarkowni o ciśnienie
+  // kolektora i przepływ powietrza przepchnęło te metryki na overview przez
+  // filtr `unit !== ''`, przez co prawa kolumna urosła z 1 rzędu kafli do 2.
+  // Nadrzędny grid ma `content-between` — przy ujemnej wolnej przestrzeni
+  // `space-between` NAKŁADA wiersze na siebie (sekcja Energii wchodziła na
+  // Sprężone powietrze przy oknie ~1904×943). Ten test pilnuje liczby kafli,
+  // czyli przyczyny; osobny test Playwright pilnuje skutku (brak nachodzeń).
+  test('Sprężarkownia renderuje DOKŁADNIE 2 kafle — ciśnienie zbiornika per magazyn (decyzja #28)', () => {
     const { container } = render(<OverviewView />);
+    for (const id of [
+      'sprezarkownia-magazyn-aluminium-cisnienie-zbiornik',
+      'sprezarkownia-magazyn-bebnow-cisnienie-zbiornik',
+    ]) {
+      expect(
+        container.querySelector(`[data-testid="overview-metric-tile-${id}"]`)
+      ).toBeInTheDocument();
+    }
+    // Ciśnienie kolektora i przepływ powietrza należą WYŁĄCZNIE do ekranu
+    // szczegółowego (CompressorAreaView) — na overview rozwalały layout.
+    for (const id of [
+      'sprezarkownia-magazyn-bebnow-cisnienie-kolektor',
+      'sprezarkownia-magazyn-bebnow-przeplyw-powietrza',
+    ]) {
+      expect(
+        container.querySelector(`[data-testid="overview-metric-tile-${id}"]`)
+      ).not.toBeInTheDocument();
+    }
+    // Bity urządzeń (PRACA/AWARIA, unit="") mają swój ekran szczegółowy
+    // (CompressorAreaView) — overview ich nie pokazuje.
     expect(
-      container.querySelector('[data-testid="overview-metric-tile-sprezarkownia-drums"]')
-    ).toBeInTheDocument();
-    expect(
-      container.querySelector('[data-testid="overview-metric-tile-sprezarkownia-aluminium"]')
-    ).toBeInTheDocument();
-    expect(screen.getByText('Magazyn Bębnów')).toBeInTheDocument();
+      container.querySelector('[data-testid="overview-metric-tile-sprezarkownia-aluminium-1-praca"]')
+    ).not.toBeInTheDocument();
+  });
+
+  test('kafle Sprężarkowni podpisane samą nazwą magazynu, bez powtarzania rodzaju odczytu', () => {
+    render(<OverviewView />);
     expect(screen.getByText('Magazyn Aluminium')).toBeInTheDocument();
+    expect(screen.getByText('Magazyn Bębnów')).toBeInTheDocument();
+    expect(screen.queryByText(/Magazyn Aluminium — Ciśnienie zbiornik/)).not.toBeInTheDocument();
   });
 
   test('Energia elektryczna renderuje 3 kafle mocy czynnej (bez kVA) + 1 kafel sumy (decyzja #29)', () => {

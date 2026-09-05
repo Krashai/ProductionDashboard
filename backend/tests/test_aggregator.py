@@ -312,6 +312,34 @@ def test_power_metric_value_is_scaled_from_raw_watts_to_kw():
     assert metric["value"] == pytest.approx(44.439)
 
 
+def test_reactive_power_metric_value_is_scaled_from_raw_var_to_kvar():
+    """Moc bierna (reactive) comes from the same power-meter register block
+    as active/apparent and needs the identical raw VAr -> kVAr scaling —
+    regression test for a gap where _POWER_METRIC_IDS omitted "reactive"
+    and left it broadcast/threshold-compared as raw, unscaled VAr."""
+    plcs = [{"id": 1, "area_id": "energia-elektryczna"}]
+    tags = [
+        {
+            "id": 31,
+            "plc_id": 1,
+            "name": "Trafo1_Reactive",
+            "metric_id": "trafostacja-1-reactive",
+            "label": "Trafostacja 1 — Moc bierna",
+            "unit": "kVAr",
+            "decimals": 1,
+        }
+    ]
+    live_snapshot = {1: {"online": True, "tag_values": {"Trafo1_Reactive": 18342}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    metric = next(a for a in payload if a["area_id"] == "energia-elektryczna")["metrics"][
+        "trafostacja-1-reactive"
+    ]
+    assert metric["value"] == pytest.approx(18.342)
+
+
 def test_power_metric_threshold_alarm_compares_against_scaled_kw_value():
     """A ThresholdRule.max the operator set thinking in kW (e.g. 50) must
     be compared against the scaled kW value, not the raw Watts reading —

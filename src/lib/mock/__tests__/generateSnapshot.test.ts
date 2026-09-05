@@ -44,6 +44,58 @@ describe('generateSnapshot', () => {
     }
   });
 
+  test('temperatura trafostacji (obszar power) mieści się w zakresie ~35-75°C, innym niż chłodnia', () => {
+    // Fizyczna skala temperatury transformatora jest zupełnie inna niż woda
+    // chłodząca — resolveRange('°C') musi rozróżniać obszar po area.type,
+    // inaczej ten sam generyczny [2,8] byłby błędny dla obu.
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(powerArea, { random: Math.random });
+      const temp = snapshot.metrics.find((m) => m.unit === '°C')!;
+      expect(temp.value).toBeGreaterThanOrEqual(35);
+      expect(temp.value).toBeLessThanOrEqual(75);
+    }
+  });
+
+  test('napięcia fazowe trafostacji (V) mieszczą się w zakresie ~215-245V', () => {
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(powerArea, { random: Math.random });
+      for (const metric of snapshot.metrics.filter((m) => m.unit === 'V')) {
+        expect(metric.value).toBeGreaterThanOrEqual(215);
+        expect(metric.value).toBeLessThanOrEqual(245);
+      }
+    }
+  });
+
+  test('prądy fazowe trafostacji (A) mieszczą się w zakresie ~20-200A', () => {
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(powerArea, { random: Math.random });
+      for (const metric of snapshot.metrics.filter((m) => m.unit === 'A')) {
+        expect(metric.value).toBeGreaterThanOrEqual(20);
+        expect(metric.value).toBeLessThanOrEqual(200);
+      }
+    }
+  });
+
+  test('moc bierna (kVAr) mieści się w zakresie ~10-150', () => {
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(powerArea, { random: Math.random });
+      for (const metric of snapshot.metrics.filter((m) => m.unit === 'kVAr')) {
+        expect(metric.value).toBeGreaterThanOrEqual(10);
+        expect(metric.value).toBeLessThanOrEqual(150);
+      }
+    }
+  });
+
+  test('THDi/THDu (%) mieszczą się w zakresie ~1-8', () => {
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(powerArea, { random: Math.random });
+      for (const metric of snapshot.metrics.filter((m) => m.unit === '%')) {
+        expect(metric.value).toBeGreaterThanOrEqual(1);
+        expect(metric.value).toBeLessThanOrEqual(8);
+      }
+    }
+  });
+
   test('ciśnienie (chłodnia i sprężarkownia) mieści się w zakresie ~6-8 bar', () => {
     for (let i = 0; i < 50; i++) {
       const coolingSnap = generateSnapshot(coolingArea, { random: Math.random });
@@ -51,11 +103,20 @@ describe('generateSnapshot', () => {
 
       for (const metric of [
         ...coolingSnap.metrics.filter((m) => m.unit === 'bar'),
-        ...compressorSnap.metrics,
+        ...compressorSnap.metrics.filter((m) => m.unit === 'bar'),
       ]) {
         expect(metric.value).toBeGreaterThanOrEqual(6);
         expect(metric.value).toBeLessThanOrEqual(8);
       }
+    }
+  });
+
+  test('przepływ powietrza (Magazyn Bębnów) mieści się w zakresie ~5-40 m³/min', () => {
+    for (let i = 0; i < 50; i++) {
+      const snapshot = generateSnapshot(compressorArea, { random: Math.random });
+      const flow = snapshot.metrics.find((m) => m.unit === 'm³/min')!;
+      expect(flow.value).toBeGreaterThanOrEqual(5);
+      expect(flow.value).toBeLessThanOrEqual(40);
     }
   });
 
@@ -144,22 +205,78 @@ describe('generateSnapshot', () => {
       random: constantRandom(0.5),
     });
 
+    function rangeForUnit(unit: string): number {
+      switch (unit) {
+        case 'cm':
+          return coolingArea.maxCm as number;
+        case '°C':
+          return 8 - 2;
+        case 'Hz':
+          return 50 - 30;
+        case '':
+          // Bool (PRACA/AWARIA): jedyny możliwy skok to 0<->1.
+          return 1;
+        default:
+          return 8 - 6; // bar
+      }
+    }
+
     for (let i = 0; i < first.metrics.length; i++) {
-      const range =
-        first.metrics[i].unit === 'cm'
-          ? (coolingArea.maxCm as number)
-          : first.metrics[i].unit === '°C'
-            ? 8 - 2
-            : 8 - 6;
+      const range = rangeForUnit(first.metrics[i].unit);
       const delta = Math.abs(second.metrics[i].value - first.metrics[i].value);
       expect(delta).toBeLessThanOrEqual(range);
     }
   });
 
-  test('metryki sprężarkowni (Magazyn Bębnów / Magazyn Aluminium) generowane są niezależnie od siebie', () => {
+  describe('metryki urządzeń (PRACA/AWARIA/Hz, Chłodnia 1/2/3)', () => {
+    const chlodnia1 = AREAS.find((a) => a.id === 'chlodnia-1')!;
+
+    test('PRACA/AWARIA (unit="") generują wyłącznie wartości 0 lub 1', () => {
+      for (let i = 0; i < 50; i++) {
+        const snapshot = generateSnapshot(chlodnia1, { random: Math.random });
+        for (const metric of snapshot.metrics.filter((m) => m.unit === '')) {
+          expect([0, 1]).toContain(metric.value);
+        }
+      }
+    });
+
+    test('metryki bool nigdy nie mają alarm=true (AWARIA sygnalizuje się przez wartość, nie ten flag)', () => {
+      for (let i = 0; i < 50; i++) {
+        const snapshot = generateSnapshot(chlodnia1, { random: Math.random });
+        for (const metric of snapshot.metrics.filter((m) => m.unit === '')) {
+          expect(metric.alarm).toBe(false);
+        }
+      }
+    });
+
+    test('metryka Hz (Pompa 1) mieści się w realistycznym zakresie 30-50 Hz', () => {
+      for (let i = 0; i < 50; i++) {
+        const snapshot = generateSnapshot(chlodnia1, { random: Math.random });
+        const hz = snapshot.metrics.find((m) => m.id === 'chlodnia-1-pompa-1-hz')!;
+        expect(hz.value).toBeGreaterThanOrEqual(30);
+        expect(hz.value).toBeLessThanOrEqual(50);
+      }
+    });
+
+    test('bool sticky: przy stałym rng powyżej progu zmiany stanu, wartość pozostaje stabilna między tickami', () => {
+      // rng=0.5 nigdy nie jest < BOOL_FLIP_PROBABILITY(0.03), więc stan
+      // ustalony przy pierwszym generowaniu powinien się utrzymać.
+      let snapshot = generateSnapshot(chlodnia1, { random: constantRandom(0.5) });
+      const pracaId = 'chlodnia-1-v101-praca';
+      const first = snapshot.metrics.find((m) => m.id === pracaId)!.value;
+      for (let i = 0; i < 5; i++) {
+        snapshot = generateSnapshot(chlodnia1, { previous: snapshot, random: constantRandom(0.5) });
+      }
+      const later = snapshot.metrics.find((m) => m.id === pracaId)!.value;
+      expect(later).toBe(first);
+    });
+  });
+
+  test('metryki sprężarkowni (obie sekcje: Magazyn Aluminium / Magazyn Bębnów) generowane są niezależnie od siebie', () => {
     const snapshot = generateSnapshot(compressorArea, { random: Math.random });
-    expect(snapshot.metrics).toHaveLength(2);
-    expect(snapshot.metrics[0].label).toBe('Magazyn Bębnów');
-    expect(snapshot.metrics[1].label).toBe('Magazyn Aluminium');
+    // 2 grupy x 2 urządzenia x 2 metryki (praca/awaria, bez hz) + 4 metryki analogowe.
+    expect(snapshot.metrics).toHaveLength(12);
+    const ids = snapshot.metrics.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

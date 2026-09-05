@@ -138,3 +138,61 @@ describe('AlarmBar', () => {
     expect(root).toHaveClass('shrink-0');
   });
 });
+
+// Regresja code-review (sierpień 2026): karta CoolingAreaView poprawnie
+// tłumiła alarm temp/ciśnienia dla wyłączonej chłodni (pompy obiegowe nie
+// pracują), ale ten globalny pasek o tym nie wiedział i nadal pulsował
+// chipem dla tej samej metryki — sprzeczny sygnał dla operatora. Używa
+// prawdziwych id z rejestru `AREAS` (`chlodnia-1-*`), bo `collectAlarms`
+// wewnętrznie odpytuje `AREAS` po id obszaru, nie przyjmuje definicji jako
+// parametru.
+describe('collectAlarms — wyciszenie alarmu wyłączonej chłodni (pompy obiegowe)', () => {
+  test('chłodnia wyłączona (żadna pompa nie pracuje): temp/ciśnienie wyciszone, poziom NIE', () => {
+    const areas = [
+      area({
+        id: 'chlodnia-1',
+        name: 'Chłodnia 1',
+        metrics: [
+          metric({ id: 'chlodnia-1-temp', label: 'Temperatura wody na halę', alarm: true }),
+          metric({ id: 'chlodnia-1-pressure', label: 'Ciśnienie wody na halę', alarm: true }),
+          metric({ id: 'chlodnia-1-level', label: 'Poziom wody w zbiorniku', alarm: true }),
+        ],
+      }),
+    ];
+
+    const alarms = collectAlarms(areas);
+    expect(alarms.map((a) => a.metricId)).toEqual(['chlodnia-1-level']);
+  });
+
+  test('chłodnia pracuje (co najmniej jedna pompa PRACA=1): temp/ciśnienie NIE są wyciszone', () => {
+    const areas = [
+      area({
+        id: 'chlodnia-1',
+        name: 'Chłodnia 1',
+        metrics: [
+          metric({ id: 'chlodnia-1-temp', label: 'Temperatura wody na halę', alarm: true }),
+          metric({ id: 'chlodnia-1-pressure', label: 'Ciśnienie wody na halę', alarm: true }),
+          metric({ id: 'chlodnia-1-pompa-1-praca', label: 'Pompa 1 — Praca', value: 1, unit: '', alarm: false }),
+        ],
+      }),
+    ];
+
+    const alarms = collectAlarms(areas);
+    expect(alarms.map((a) => a.metricId).sort()).toEqual(['chlodnia-1-pressure', 'chlodnia-1-temp']);
+  });
+
+  test('obszar niebędący chłodnią (np. Sprężarkownia): brak wyciszania, nawet dla id kończącego się na -temp', () => {
+    const areas = [
+      area({
+        id: 'sprezarkownia',
+        name: 'Sprężarkownia',
+        type: 'compressor',
+        metrics: [metric({ id: 'sprezarkownia-magazyn-aluminium-cisnienie-zbiornik', alarm: true })],
+      }),
+    ];
+
+    expect(collectAlarms(areas).map((a) => a.metricId)).toEqual([
+      'sprezarkownia-magazyn-aluminium-cisnienie-zbiornik',
+    ]);
+  });
+});

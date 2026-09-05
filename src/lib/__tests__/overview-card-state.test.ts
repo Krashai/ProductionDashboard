@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
+  deviceAccentBarClasses,
+  deviceRunningDotClasses,
   overviewAccentBarClasses,
   overviewAccentGlowShadow,
   overviewCardStateClasses,
@@ -54,5 +56,46 @@ describe('overviewAccentGlowShadow', () => {
 
   test('alarm=true: zawsze zwraca poświatę rose (decyzja #16)', () => {
     expect(overviewAccentGlowShadow(true)).toBe('shadow-[2px_0_20px_rgba(225,29,72,0.3)]');
+  });
+});
+
+describe('deviceRunningDotClasses', () => {
+  test('running=false: szara kropka', () => {
+    expect(deviceRunningDotClasses(false)).toMatch(/bg-slate-300/);
+    expect(deviceRunningDotClasses(false)).not.toMatch(/bg-emerald/);
+  });
+
+  test('running=true: emerald — świadomy wyjątek od "tylko rose sygnalizuje"', () => {
+    expect(deviceRunningDotClasses(true)).toMatch(/bg-emerald-500/);
+  });
+});
+
+describe('deviceAccentBarClasses', () => {
+  test('fault=true, running=false: pasek jest rose', () => {
+    const classes = deviceAccentBarClasses(false, true);
+    expect(classes).toMatch(/bg-rose-500/);
+    expect(classes).not.toMatch(/bg-emerald-500/);
+    expect(classes).not.toMatch(/bg-slate-300/);
+  });
+
+  test('fault=true ma pierwszeństwo nad running=true: pasek jest rose, nie emerald', () => {
+    const classes = deviceAccentBarClasses(true, true);
+    expect(classes).toMatch(/bg-rose-500/);
+    expect(classes).not.toMatch(/bg-emerald-500/);
+  });
+
+  test('running=true, fault=false: pasek jest emerald', () => {
+    const classes = deviceAccentBarClasses(true, false);
+    expect(classes).toMatch(/bg-emerald-500/);
+    expect(classes).not.toMatch(/bg-rose-500/);
+    expect(classes).not.toMatch(/bg-slate-300/);
+  });
+
+  test('running=false, fault=false: pasek jest neutralny (bg-slate-300), nie przezroczysty — trzy realne stany dostają trzy odrębne kolory', () => {
+    const classes = deviceAccentBarClasses(false, false);
+    expect(classes).toMatch(/bg-slate-300/);
+    expect(classes).not.toMatch(/bg-transparent/);
+    expect(classes).not.toMatch(/bg-emerald-500/);
+    expect(classes).not.toMatch(/bg-rose-500/);
   });
 });
