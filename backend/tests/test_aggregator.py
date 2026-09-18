@@ -2,6 +2,8 @@
 (plcs, tags, threshold_rules, bit_alarm_rules, live_snapshot) into the
 area-grouped WS/`/status` payload shape from NewBackendPlan.md §4.
 """
+import json
+
 import pytest
 
 from app.plc.aggregator import build_area_payload
@@ -470,3 +472,83 @@ def test_tag_from_wrong_area_never_leaks_onto_a_different_areas_metric_card():
 
     chlodnia2 = next(a for a in payload if a["area_id"] == "chlodnia-2")
     assert "chlodnia-1-temp" not in chlodnia2["metrics"]
+
+
+def test_bool_tag_reaches_payload_as_json_number_not_boolean():
+    """The defect this guards against took down the whole wallboard.
+
+    A BOOL tag (device PRACA/AWARIA) used to travel decode -> worker ->
+    LiveStore -> here as a Python bool and serialize to JSON `true`. The
+    frontend guard (src/lib/backend/payload.ts) accepts `number | null`
+    only and validates the entire STATE_UPDATE envelope in one pass, so a
+    single such metric invalidated all five areas at once.
+
+    This asserts the payload contract at the point it becomes JSON — the
+    seam neither the backend nor the frontend suite covered on its own.
+    """
+    plcs = [{"id": 1, "area_id": "chlodnia-1"}]
+    tags = [
+        {
+            "id": 10,
+            "plc_id": 1,
+            "name": "V101_Praca",
+            "metric_id": "chlodnia-1-v101-praca",
+            "label": "V101 — Praca",
+            "unit": "",
+            "decimals": 0,
+        }
+    ]
+    # What decode_tag_value now produces for a BOOL tag: int, never bool.
+    live_snapshot = {1: {"online": True, "tag_values": {"V101_Praca": 1}, "error": None}}
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    chlodnia1 = next(a for a in payload if a["area_id"] == "chlodnia-1")
+    value = chlodnia1["metrics"]["chlodnia-1-v101-praca"]["value"]
+
+    assert isinstance(value, int) and not isinstance(value, bool)
+    assert '"value": 1' in json.dumps(chlodnia1["metrics"]["chlodnia-1-v101-praca"])
+
+
+def test_full_payload_contains_no_boolean_metric_values():
+    """Envelope-wide invariant, deliberately broader than the test above:
+    NO metric in ANY area may serialize as a JSON boolean, whatever the
+    tag type. `alarm` is a boolean by design and is exempt; `value` is not.
+    """
+    plcs = [{"id": 1, "area_id": "chlodnia-1"}]
+    tags = [
+        {
+            "id": 10,
+            "plc_id": 1,
+            "name": "V101_Praca",
+            "metric_id": "chlodnia-1-v101-praca",
+            "label": "V101 — Praca",
+            "unit": "",
+            "decimals": 0,
+        },
+        {
+            "id": 11,
+            "plc_id": 1,
+            "name": "Temp_Hala",
+            "metric_id": "chlodnia-1-temp",
+            "label": "Temperatura wody na halę",
+            "unit": "°C",
+            "decimals": 1,
+        },
+    ]
+    live_snapshot = {
+        1: {"online": True, "tag_values": {"V101_Praca": 0, "Temp_Hala": 4.7}, "error": None}
+    }
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+
+    offenders = [
+        (area["area_id"], metric_id)
+        for area in payload
+        for metric_id, metric in area["metrics"].items()
+        if isinstance(metric["value"], bool)
+    ]
+    assert offenders == []

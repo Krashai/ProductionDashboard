@@ -105,7 +105,13 @@ def test_probe_bool_decodes_correct_bit_within_the_byte(probe_client, mock_clien
     )
 
     assert resp.status_code == 200
-    assert resp.json()["value"] is True
+    # 1, not True: the probe shares decode_tag_value with the poller, so the
+    # wizard must show the operator exactly the value the wallboard will
+    # receive. TRUE/FALSE rendering lives in admin.html's presentation layer
+    # (wizardFormatProbeValue) — see decode.py's BOOL branch for why the
+    # wire contract is numeric.
+    assert resp.json()["value"] == 1
+    assert not isinstance(resp.json()["value"], bool)
     mock_client.db_read.assert_called_once_with(2, 0, 1)
 
 
@@ -121,7 +127,8 @@ def test_probe_bool_false_bit_is_distinguished_from_true(probe_client, mock_clie
     )
 
     assert resp.status_code == 200
-    assert resp.json()["value"] is False
+    assert resp.json()["value"] == 0
+    assert not isinstance(resp.json()["value"], bool)
 
 
 # --- 404 ---------------------------------------------------------------

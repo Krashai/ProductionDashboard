@@ -68,8 +68,9 @@ def _build_device_group(
     area_id: str, group_id: str, group_label: str, devices: list[DeviceSpec]
 ) -> tuple[DeviceGroupDefinition, list[MetricDefinition]]:
     """Każde urządzenie w grupie dostaje dwa bity — PRACA/AWARIA (0/1, jak dziś
-    zwykła metryka analogowa: `Tag.type=BOOL` dekoduje się do liczby 0/1,
-    patrz `app.plc.decode.get_bool`) — i opcjonalnie trzecią metrykę Hz dla
+    zwykła metryka analogowa: `Tag.type=BOOL` dekoduje się do liczby 0/1
+    — koercja `int(...)` w `app.plc.decode.decode_tag_value`, gałąź BOOL;
+    samo `snap7.util.get_bool` zwraca boola, co łamie kontrakt drutowy) — i opcjonalnie trzecią metrykę Hz dla
     urządzeń z regulacją obrotów (np. pompa VFD). Zwraca zarówno definicję
     grupy (do `AreaDefinition.device_groups`, używaną przez front do
     grupowania kafli) jak i płaską listę wygenerowanych `MetricDefinition`

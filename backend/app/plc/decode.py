@@ -1,7 +1,7 @@
 """Decoding of raw S7 PLC byte buffers into Python values.
 
 Ported/rewritten from the ProductionMonitor gateway pattern
-(gateway/backend/app/plc/utils.py) with two deliberate deviations:
+(gateway/backend/app/plc/utils.py) with three deliberate deviations:
 
 1. Adds WORD and BYTE, needed here because bit-alarm tags in this backend
    are typically "fault word" registers (WORD/BYTE) inspected bit-by-bit,
@@ -14,6 +14,11 @@ Ported/rewritten from the ProductionMonitor gateway pattern
    propagate; the PLC worker (the caller) is responsible for catching per
    -tag decode errors, logging them with full context, and marking that
    single tag as unavailable without killing the whole poll cycle.
+3. Normalizes BOOL to int 0/1 rather than returning snap7's Python bool.
+   Every value produced here is destined for a `value` field that the
+   rest of the system (payload schema, threshold rules, the wallboard's
+   device tiles) treats as a number; returning a bool made that contract
+   silently false. See the BOOL branch below for the full rationale.
 """
 from __future__ import annotations
 
@@ -58,8 +63,17 @@ def decode_tag_value(
     if t_type == "DINT":
         return get_dint(raw_data, offset)
     if t_type == "BOOL":
-        # S7 bits are addressed as byte.bit (e.g. DB1.DBX0.3)
-        return get_bool(raw_data, offset, bit)
+        # S7 bits are addressed as byte.bit (e.g. DB1.DBX0.3).
+        # `int(...)` is load-bearing, not cosmetic: snap7's get_bool returns a
+        # Python bool, but the wire contract for a tag value is "number or
+        # null" (see BackendMetric in src/lib/backend/payload.ts, and the
+        # 0/1 promise in app.domain.areas). A bool serializes to JSON `true`,
+        # which the frontend's runtime guard rejects — and because that guard
+        # validates the whole STATE_UPDATE envelope, a single BOOL tag used to
+        # blank the entire wallboard. Normalize here, at the one point where
+        # the tag type is still known, so every consumer (PLCWorker polling
+        # and the admin probe wizard alike) sees the same numeric contract.
+        return int(get_bool(raw_data, offset, bit))
     if t_type == "STRING":
         return get_string(raw_data, offset)
     if t_type == "WORD":

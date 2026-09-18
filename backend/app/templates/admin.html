@@ -722,6 +722,16 @@
     }
 
     // Step 4 -------------------------------------------------------------
+    // BOOL is decoded to 0/1 on the wire on purpose (app.plc.decode: the
+    // wallboard's `value` field is numeric, and a JSON boolean there used
+    // to break the frontend's payload guard). Operators still think in
+    // TRUE/FALSE when wiring up a bit, so the friendly rendering lives
+    // here, in the presentation layer — never by weakening the contract.
+    function wizardFormatProbeValue(type, value) {
+      if (type !== "BOOL") return value;
+      return value ? "TRUE (1)" : "FALSE (0)";
+    }
+
     // Deliberately NOT using fetchJson: fetchJson's generic error handler
     // alert()s on every non-2xx response, which would turn the expected
     // "PLC offline" / "bad address" 502s into a blocking dialog. Probing
@@ -776,7 +786,7 @@
 
       const result = await resp.json();
       const timeText = new Date(result.read_at).toLocaleTimeString("pl-PL");
-      resultEl.textContent = `Odczytano: ${result.value} (o ${timeText})`;
+      resultEl.textContent = `Odczytano: ${wizardFormatProbeValue(wizardState.type, result.value)} (o ${timeText})`;
       resultEl.className = "status-ok";
     }
 

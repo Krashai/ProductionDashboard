@@ -32,8 +32,15 @@ function findMetric(metrics: Metric[], id: string | undefined): Metric | undefin
 }
 
 /** PRACA/AWARIA płyną przez ten sam kanał co metryki analogowe — Tag typu
- * BOOL dekoduje się do liczby 0/1 (patrz `backend/app/plc/decode.py`), więc
- * "running"/"fault" to po prostu `value === 1` na odpowiedniej metryce. */
+ * BOOL dekoduje się do liczby 0/1, więc "running"/"fault" to po prostu
+ * `value === 1` na odpowiedniej metryce.
+ *
+ * Ten kontrakt jest EGZEKWOWANY, nie tylko opisany: `int(get_bool(...))` w
+ * `backend/app/plc/decode.py` (funkcja `decode_tag_value`, gałąź BOOL), a
+ * pilnuje go test `test_bool_decodes_to_int_not_python_bool`. Wcześniej ten
+ * komentarz opisywał kontrakt, którego nikt nie realizował — snap7 zwracał
+ * pythonowego boola, na drut szło `true`, a `true === 1` to w JS `false`.
+ * Jeśli zmieniasz typ wartości po stronie PLC, zacznij od tamtego testu. */
 export function deriveDeviceStatus(
   device: DeviceDefinition,
   metrics: Metric[],

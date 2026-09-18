@@ -139,7 +139,12 @@ def test_run_once_decodes_bool_tag_with_bit_offset():
 
     worker.run_once()
 
-    assert live_store.snapshot()[1]["tag_values"]["Alarm"] is True
+    # `== 1` samo w sobie NIE wystarcza: True == 1 w Pythonie, więc taka
+    # asercja przeszłaby dla boola i nie pilnowałaby kontraktu na tym
+    # jedynym styku worker->LiveStore. Typ musi być sprawdzony wprost.
+    alarm_value = live_store.snapshot()[1]["tag_values"]["Alarm"]
+    assert alarm_value == 1
+    assert isinstance(alarm_value, int) and not isinstance(alarm_value, bool)
 
 
 def test_connection_failure_marks_plc_offline_with_error_and_does_not_raise():

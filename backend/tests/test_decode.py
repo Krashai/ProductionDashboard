@@ -4,6 +4,8 @@ Uses real snap7.util set_* helpers to build raw byte buffers, so the
 round-trip (encode with snap7, decode with our function) proves we match
 the S7 wire format exactly, rather than trusting hand-rolled byte math.
 """
+import json
+
 import pytest
 from snap7.util import (
     set_real,
@@ -43,19 +45,36 @@ def test_decodes_dint():
 def test_decodes_bool_true_at_bit():
     buf = _buffer()
     set_bool(buf, 0, 3, True)
-    assert decode_tag_value(buf, 0, "BOOL", bit=3) is True
+    assert decode_tag_value(buf, 0, "BOOL", bit=3) == 1
 
 
 def test_decodes_bool_false_at_bit():
     buf = _buffer()
     set_bool(buf, 0, 3, False)
-    assert decode_tag_value(buf, 0, "BOOL", bit=3) is False
+    assert decode_tag_value(buf, 0, "BOOL", bit=3) == 0
 
 
 def test_decodes_bool_defaults_bit_zero():
     buf = _buffer()
     set_bool(buf, 1, 0, True)
-    assert decode_tag_value(buf, 1, "BOOL") is True
+    assert decode_tag_value(buf, 1, "BOOL") == 1
+
+
+def test_bool_decodes_to_int_not_python_bool():
+    """Regression guard for the wallboard blackout: snap7's get_bool returns
+    a Python bool, which serializes to JSON `true`. The frontend's payload
+    guard accepts `number | null` only, and validates the whole STATE_UPDATE
+    envelope at once — so one bool-valued metric blanked all five areas.
+
+    `== 1` alone would NOT catch a regression here (True == 1 in Python), so
+    this asserts the type explicitly. bool is a subclass of int, hence the
+    `not isinstance(..., bool)` rather than a plain isinstance check.
+    """
+    buf = _buffer()
+    set_bool(buf, 0, 0, True)
+    value = decode_tag_value(buf, 0, "BOOL")
+    assert isinstance(value, int) and not isinstance(value, bool)
+    assert json.dumps({"value": value}) == '{"value": 1}'
 
 
 def test_decodes_string():
