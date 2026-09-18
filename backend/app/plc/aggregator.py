@@ -10,9 +10,12 @@ event loop.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.domain.areas import AREA_DEFINITIONS
+
+logger = logging.getLogger(__name__)
 
 # The 9 power metrics (moc czynna/bierna/pozorna for each of 3 trafostacje)
 # are polled from the PLC in raw Watts/VAr/VA, but MetricDefinition.unit for
@@ -114,11 +117,33 @@ def build_area_payload(
         value = _scale_metric_value(tag["metric_id"], _tag_value(tag, live_snapshot))
         threshold_rule = threshold_by_tag_id.get(tag["id"])
         bit_rules = bit_alarms_by_tag_id.get(tag["id"], [])
-        if threshold_rule is not None:
-            result = _evaluate_threshold(value, threshold_rule)
-        elif bit_rules:
-            result = _evaluate_bit_alarms(value, bit_rules)
-        else:
+        try:
+            if threshold_rule is not None:
+                result = _evaluate_threshold(value, threshold_rule)
+            elif bit_rules:
+                result = _evaluate_bit_alarms(value, bit_rules)
+            else:
+                result = (False, None)
+        except Exception:
+            # A rule that cannot be evaluated against this tag's value —
+            # a STRING tag carrying a min/max threshold, say — used to
+            # raise straight through build_area_payload and kill the
+            # whole broadcast tick (broadcaster.broadcast_loop swallows
+            # it), taking EVERY client offline after the 10s staleness
+            # timeout. That is the same "one bad tag blanks the wallboard"
+            # failure the BOOL fix removed, one layer down. One unusable
+            # rule degrades to "no alarm" for that tag alone; every other
+            # tag and area still broadcasts normally. Logged with full
+            # context, never silent — see the error-handling rule in
+            # app.plc.decode's module docstring.
+            logger.exception(
+                "Alarm rule evaluation failed for tag %r (id=%s, metric_id=%r, "
+                "value_type=%s) — degrading this tag to 'no alarm'",
+                tag["name"],
+                tag["id"],
+                tag["metric_id"],
+                type(value).__name__,
+            )
             result = (False, None)
         _alarm_cache[tag["id"]] = result
         return result

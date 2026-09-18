@@ -552,3 +552,65 @@ def test_full_payload_contains_no_boolean_metric_values():
         if isinstance(metric["value"], bool)
     ]
     assert offenders == []
+
+
+def test_unevaluable_alarm_rule_degrades_that_tag_instead_of_killing_the_broadcast(caplog):
+    """Same failure class as the BOOL outage, one layer down.
+
+    A STRING tag carrying a min/max ThresholdRule makes _evaluate_threshold
+    compare str < float -> TypeError. That used to propagate out of
+    build_area_payload into broadcaster.broadcast_loop, which swallows it
+    with a print — so EVERY tick failed, no STATE_UPDATE was ever sent, and
+    all clients went offline after their 10s staleness timeout while the
+    backend looked healthy. One bad rule must cost one tag's alarm, never
+    the whole broadcast.
+    """
+    plcs = [{"id": 1, "area_id": "chlodnia-1"}]
+    tags = [
+        {
+            "id": 10,
+            "plc_id": 1,
+            "name": "Nazwa_Linii",
+            "metric_id": "chlodnia-1-temp",
+            "label": "Nazwa linii",
+            "unit": "",
+            "decimals": 0,
+        },
+        {
+            "id": 11,
+            "plc_id": 1,
+            "name": "Cisnienie",
+            "metric_id": "chlodnia-1-pressure",
+            "label": "Ciśnienie",
+            "unit": "bar",
+            "decimals": 2,
+        },
+    ]
+    threshold_rules = [{"tag_id": 10, "min": 2.0, "max": 8.0}]
+    live_snapshot = {
+        1: {
+            "online": True,
+            "tag_values": {"Nazwa_Linii": "tekst z PLC", "Cisnienie": 99.0},
+            "error": None,
+        }
+    }
+
+    payload = build_area_payload(
+        plcs=plcs,
+        tags=tags,
+        threshold_rules=threshold_rules,
+        bit_alarm_rules=[],
+        live_snapshot=live_snapshot,
+    )
+
+    # Broadcast survives in full: all five areas still built.
+    assert len(payload) == 5
+    chlodnia1 = next(a for a in payload if a["area_id"] == "chlodnia-1")
+
+    # The offending tag degrades to "no alarm"...
+    assert chlodnia1["metrics"]["chlodnia-1-temp"]["alarm"] is False
+    # ...while its healthy neighbour keeps its value and is unaffected.
+    assert chlodnia1["metrics"]["chlodnia-1-pressure"]["value"] == 99.0
+
+    # Degradation is logged with context, never silent.
+    assert "Nazwa_Linii" in caplog.text

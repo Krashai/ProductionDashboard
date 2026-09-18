@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { mapAreasPayload, markAllOffline } from '@/lib/backend/mapPayload';
+import type { InvalidMetricReport } from '@/lib/backend/mapPayload';
 import type { BackendArea, BackendMetric, BackendStateUpdate } from '@/lib/backend/payload';
 import { AREAS } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
@@ -278,5 +279,125 @@ describe('markAllOffline', () => {
     expect(original).toEqual(snapshot);
     expect(result[0].isOnline).toBe(false);
     expect(result.every((s) => s.isOnline === false)).toBe(true);
+  });
+});
+
+describe('mapAreasPayload — degradacja wadliwej metryki', () => {
+  const COOLING_AREA = AREAS.find((a) => a.id === 'chlodnia-1');
+  if (!COOLING_AREA) throw new Error('Fixture wymaga obszaru "chlodnia-1" w AREAS');
+  const BROKEN_METRIC_ID = COOLING_AREA.metrics[0].id;
+
+  /** Payload, w którym JEDNA metryka chłodni 1 ma wartość niezgodną z
+   * kontraktem; wszystkie pozostałe metryki wszystkich 5 obszarów są
+   * poprawne. Dokładnie kształt, który wcześniej gasił cały wallboard.
+   *
+   * Brak rzutowania jest celowy: `BackendArea.metrics` to `Record<string,
+   * unknown>`, więc wstawienie tu wadliwej metryki musi być legalne bez
+   * `as` — inaczej fixture kłamałby o tym, co przychodzi z socketu. */
+  function payloadWithBrokenMetric(value: unknown): BackendStateUpdate {
+    const payload = fullPayload();
+    const chlodnia1 = payload.areas.find((a) => a.area_id === 'chlodnia-1')!;
+    chlodnia1.metrics[BROKEN_METRIC_ID] = { ...makeMetric(), value };
+    return payload;
+  }
+
+  test('wadliwa metryka nie wywraca pozostałych metryk ani innych obszarów', () => {
+    const result = mapAreasPayload(payloadWithBrokenMetric(true), []);
+
+    expect(result).toHaveLength(AREAS.length);
+    const others = result.flatMap((s) => s.metrics).filter((m) => m.id !== BROKEN_METRIC_ID);
+    expect(others.length).toBeGreaterThan(0);
+    expect(others.every((m) => m.value === 1)).toBe(true);
+    expect(result.every((s) => s.isOnline)).toBe(true);
+  });
+
+  test('wadliwa metryka trzyma ostatnią znaną wartość zamiast wpisywać boolean', () => {
+    // Poprzednia wartość MUSI być inna niż 1: gdyby fixture podał 1 (jak
+    // reszta payloadu), błędna implementacja `Number(raw.value)` dałaby dla
+    // `true` również 1 i test przeszedłby mimo cichej koercji boola.
+    const previousValue = 42;
+    const seed = fullPayload();
+    seed.areas.find((a) => a.area_id === 'chlodnia-1')!.metrics[BROKEN_METRIC_ID] = {
+      ...makeMetric(),
+      value: previousValue,
+    };
+    const healthy = mapAreasPayload(seed, []);
+    const degraded = mapAreasPayload(payloadWithBrokenMetric(true), healthy);
+
+    const metric = degraded[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!;
+    expect(metric.value).toBe(previousValue);
+    expect(typeof metric.value).toBe('number');
+    expect(metric.history.every((v) => typeof v === 'number')).toBe(true);
+    // Trend też trzyma podtrzymaną wartość, a nie skoercowane 1.
+    expect(metric.history.at(-1)).toBe(previousValue);
+  });
+
+  test('brak metryki NIE jest raportowany jako wadliwa — to inny przypadek', () => {
+    // Test negatywny do rozróżnienia "nie przysłano" vs "nie da się
+    // sparsować": bez niego nic nie pilnuje wczesnego `return undefined`.
+    const reports: InvalidMetricReport[] = [];
+    const payload = fullPayload();
+    delete payload.areas.find((a) => a.area_id === 'chlodnia-1')!.metrics[BROKEN_METRIC_ID];
+
+    mapAreasPayload(payload, [], { onInvalidMetric: (r) => reports.push(r) });
+
+    expect(reports).toEqual([]);
+  });
+
+  test('zgłasza każdą wadliwą metrykę przez onInvalidMetric, z powodem', () => {
+    const reports: InvalidMetricReport[] = [];
+
+    mapAreasPayload(payloadWithBrokenMetric(true), [], {
+      onInvalidMetric: (report) => reports.push(report),
+    });
+
+    expect(reports).toEqual([
+      { areaId: 'chlodnia-1', metricId: BROKEN_METRIC_ID, reason: 'value: boolean' },
+    ]);
+  });
+
+  test('AKTYWNY alarm przeżywa degradację metryki — nie znika po cichu z ekranu', () => {
+    // Wallboard nie ma nikogo, kto czyta konsolę. Gdyby `alarm` resetował
+    // się do false przy wadliwej metryce, podczas gdy wartość trzyma stan
+    // sprzed awarii, operator zobaczyłby kafelek "zdrowy, bez alarmu" nad
+    // danymi, których przeglądarka nie potrafiła sparsować. Degradacja musi
+    // być spójna: wartość i alarm trzymają się razem.
+    const alarming = fullPayload();
+    const chlodnia1 = alarming.areas.find((a) => a.area_id === 'chlodnia-1')!;
+    chlodnia1.metrics[BROKEN_METRIC_ID] = { ...makeMetric(), alarm: true };
+
+    const withAlarm = mapAreasPayload(alarming, []);
+    expect(withAlarm[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!.alarm).toBe(true);
+
+    const degraded = mapAreasPayload(payloadWithBrokenMetric(true), withAlarm);
+    expect(degraded[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!.alarm).toBe(true);
+  });
+
+  test('powód odrzucenia wskazuje FAKTYCZNIE wadliwe pole, nie zawsze "value"', () => {
+    // Komunikat obwiniający niewłaściwe pole jest gorszy niż jego brak —
+    // czyta go ktoś, kto właśnie szuka, czemu kafelek zgasł.
+    const reports: InvalidMetricReport[] = [];
+    const payload = fullPayload();
+    const chlodnia1 = payload.areas.find((a) => a.area_id === 'chlodnia-1')!;
+    // `value` jest poprawne; zepsute jest `label`.
+    chlodnia1.metrics[BROKEN_METRIC_ID] = { ...makeMetric(), label: 1 };
+
+    mapAreasPayload(payload, [], { onInvalidMetric: (r) => reports.push(r) });
+
+    expect(reports.map((r) => r.reason)).toEqual(['label: number']);
+  });
+
+  test('nie zgłasza niczego, gdy wszystkie metryki są poprawne', () => {
+    const reports: unknown[] = [];
+    mapAreasPayload(fullPayload(), [], { onInvalidMetric: (r) => reports.push(r) });
+    expect(reports).toEqual([]);
+  });
+
+  test('metryka STRING degraduje tak samo jak boolean — ta sama klasa błędu', () => {
+    const reports: InvalidMetricReport[] = [];
+    mapAreasPayload(payloadWithBrokenMetric('chlodnia-1'), [], {
+      onInvalidMetric: (report) => reports.push(report),
+    });
+    expect(reports.map((r) => r.reason)).toEqual(['value: string']);
   });
 });

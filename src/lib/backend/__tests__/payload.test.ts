@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { isStateUpdate, type BackendMetric } from '@/lib/backend/payload';
+import { isBackendMetric, isStateUpdate, type BackendMetric } from '@/lib/backend/payload';
 
 function validMetric(): BackendMetric {
   return {
@@ -91,47 +91,61 @@ describe('isStateUpdate', () => {
     ).toBe(false);
   });
 
-  test('odrzuca metrykę z niepoprawnym typem pola (label/unit/decimals/value/alarm/alarm_description)', () => {
+  test('NIE odrzuca koperty z powodu wadliwej metryki — degradacja jest per metryka', () => {
+    // Regresja awarii z 2026-09: `isStateUpdate` walidowała każdą metrykę
+    // przez zagnieżdżone `every()`, więc JEDEN tag BOOL serializowany jako
+    // `true` unieważniał cały STATE_UPDATE — wszystkie 5 obszarów gasło po
+    // 10s watchdoga mimo zdrowego backendu i żywego socketu. Koperta musi
+    // przechodzić; wadliwą metrykę odsiewa `isBackendMetric` w mapPayload.
     const base = validArea();
+    const brokenValues = [true, false, 'nope', {}, null];
 
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), label: 1 } } }],
-      })
-    ).toBe(false);
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), unit: 1 } } }],
-      })
-    ).toBe(false);
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), decimals: '1' } } }],
-      })
-    ).toBe(false);
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), value: 'nope' } } }],
-      })
-    ).toBe(false);
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), alarm: 'yes' } } }],
-      })
-    ).toBe(false);
-    expect(
-      isStateUpdate({
-        ...validPayload(),
-        areas: [{ ...base, metrics: { m: { ...validMetric(), alarm_description: 1 } } }],
-      })
-    ).toBe(false);
+    for (const value of brokenValues) {
+      expect(
+        isStateUpdate({
+          ...validPayload(),
+          areas: [{ ...base, metrics: { m: { ...validMetric(), value } } }],
+        })
+      ).toBe(true);
+    }
+
     expect(isStateUpdate({ ...validPayload(), areas: [{ ...base, metrics: { m: null } }] })).toBe(
-      false
+      true
     );
+  });
+});
+
+describe('isBackendMetric', () => {
+  test('akceptuje poprawną metrykę i wartość null', () => {
+    expect(isBackendMetric(validMetric())).toBe(true);
+    expect(isBackendMetric({ ...validMetric(), value: null })).toBe(true);
+  });
+
+  test('odrzuca metrykę BOOL przychodzącą jako JSON boolean', () => {
+    // Dokładnie to, co wysyłał backend przed koercją `int(get_bool(...))`
+    // w backend/app/plc/decode.py. Kontrakt drutowy to `number | null`.
+    expect(isBackendMetric({ ...validMetric(), value: true })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), value: false })).toBe(false);
+  });
+
+  test('odrzuca metrykę STRING — ta sama klasa błędu, inny typ taga', () => {
+    // Tag.type=STRING jest dopuszczony przez SUPPORTED_TAG_TYPES w
+    // decode.py i dekoduje się do `str`. Bez tej asercji mina zostaje
+    // uzbrojona na przyszłość.
+    expect(isBackendMetric({ ...validMetric(), value: 'chlodnia-1' })).toBe(false);
+  });
+
+  test('odrzuca niepoprawny typ pola (label/unit/decimals/alarm/alarm_description)', () => {
+    expect(isBackendMetric({ ...validMetric(), label: 1 })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), unit: 1 })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), decimals: '1' })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), alarm: 'yes' })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), alarm_description: 1 })).toBe(false);
+  });
+
+  test('odrzuca null / prymitywy', () => {
+    expect(isBackendMetric(null)).toBe(false);
+    expect(isBackendMetric(undefined)).toBe(false);
+    expect(isBackendMetric(42)).toBe(false);
   });
 });

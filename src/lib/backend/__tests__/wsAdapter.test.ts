@@ -276,3 +276,106 @@ describe('createWebSocketAdapter', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('createWebSocketAdapter — diagnostyka odrzuconych danych', () => {
+  /** Awaria z 2026-09 była tak trudna do zdiagnozowania nie dlatego, że
+   * dane były złe, tylko dlatego, że odrzucenie było CAŁKOWICIE ciche:
+   * backend zdrowy, socket żywy, ekran martwy, konsola pusta. Te testy
+   * pilnują, że każda odrzucona/zdegradowana dana zostawia ślad. */
+
+  test('loguje odrzucenie niepoprawnego JSON-a', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const logger = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, logger });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onmessage?.({ data: '{not json' });
+
+    expect(logger).toHaveBeenCalledTimes(1);
+    expect(logger.mock.calls[0][0]).toBe('parse');
+    unsubscribe();
+  });
+
+  test('loguje odrzucenie koperty niezgodnej ze STATE_UPDATE', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const logger = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, logger });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: 'PING' }) });
+
+    expect(logger).toHaveBeenCalledTimes(1);
+    expect(logger.mock.calls[0][0]).toBe('envelope');
+    expect(logger.mock.calls[0][1]).toContain('STATE_UPDATE');
+    unsubscribe();
+  });
+
+  test('metryka BOOL jako `true` jest logowana, ale NIE gasi wallboardu', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const logger = vi.fn();
+    const listener = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, logger });
+
+    const update = makeStateUpdate();
+    const brokenId = AREAS[0].metrics[0].id;
+    (update.areas[0].metrics as Record<string, unknown>)[brokenId] = {
+      label: 'x',
+      unit: '',
+      decimals: 0,
+      value: true,
+      alarm: false,
+      alarm_description: null,
+    };
+
+    const unsubscribe = adapter.subscribe(listener);
+    sockets[0].onmessage?.({ data: JSON.stringify(update) });
+
+    // Kluczowa różnica wobec stanu sprzed naprawy: listener DOSTAJE dane.
+    expect(listener).toHaveBeenCalledTimes(1);
+    const snapshots = listener.mock.calls[0][0] as AreaSnapshot[];
+    expect(snapshots).toHaveLength(AREAS.length);
+    expect(snapshots.every((s) => s.isOnline)).toBe(true);
+
+    expect(logger).toHaveBeenCalledTimes(1);
+    expect(logger.mock.calls[0][0]).toBe(`metric:${AREAS[0].id}:${brokenId}`);
+    expect(logger.mock.calls[0][1]).toContain('boolean');
+
+    unsubscribe();
+  });
+
+  test('wadliwa metryka nie wpycha wallboardu w offline po staleTimeout', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const onStatus = vi.fn();
+    const adapter = createWebSocketAdapter({
+      socketFactory: factory,
+      logger: vi.fn(),
+      staleTimeoutMs: 10000,
+    });
+
+    const update = makeStateUpdate();
+    (update.areas[0].metrics as Record<string, unknown>)[AREAS[0].metrics[0].id] = {
+      label: 'x',
+      unit: '',
+      decimals: 0,
+      value: true,
+      alarm: false,
+      alarm_description: null,
+    };
+
+    const unsubscribe = adapter.subscribe(vi.fn(), onStatus);
+    sockets[0].onmessage?.({ data: JSON.stringify(update) });
+    expect(onStatus).toHaveBeenLastCalledWith('live');
+
+    // Backend nadal nadaje co sekundę — watchdog jest resetowany, bo
+    // wiadomości znów przechodzą. Wcześniej tu zapadała cisza i po 10s
+    // ekran gasł mimo zdrowego połączenia.
+    vi.advanceTimersByTime(9000);
+    sockets[0].onmessage?.({ data: JSON.stringify(update) });
+    vi.advanceTimersByTime(9000);
+
+    expect(onStatus).toHaveBeenLastCalledWith('live');
+    expect(onStatus).not.toHaveBeenCalledWith('offline');
+
+    unsubscribe();
+  });
+});

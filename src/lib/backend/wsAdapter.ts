@@ -2,6 +2,7 @@ import type { AreasDataAdapter, ConnectionStatus } from '@/hooks/useAreasData';
 import { AREAS } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
 import { resolveWsUrl } from './config';
+import { createRateLimitedLogger, type RateLimitedLogger } from './diagnostics';
 import { mapAreasPayload, markAllOffline } from './mapPayload';
 import { isStateUpdate } from './payload';
 
@@ -31,6 +32,9 @@ export interface CreateWebSocketAdapterOptions {
   jitter?: () => number;
   setTimeoutFn?: typeof setTimeout;
   clearTimeoutFn?: typeof clearTimeout;
+  /** Injectable for tests. Defaults to a console.warn logger rate-limited
+   * per distinct problem — see `./diagnostics`. */
+  logger?: RateLimitedLogger;
 }
 
 const DEFAULT_STALE_TIMEOUT_MS = 10000;
@@ -82,6 +86,7 @@ export function createWebSocketAdapter(
   const jitter = opts.jitter ?? NO_JITTER;
   const setTimeoutFn = opts.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = opts.clearTimeoutFn ?? clearTimeout;
+  const logger = opts.logger ?? createRateLimitedLogger();
 
   return {
     subscribe(listener, onStatus) {
@@ -148,11 +153,34 @@ export function createWebSocketAdapter(
           try {
             parsed = JSON.parse(event.data);
           } catch {
+            // Silence here is what made the BOOL outage undiagnosable:
+            // healthy backend, live socket, dead screen, empty console.
+            logger('parse', 'Odrzucono wiadomość WS: nie jest poprawnym JSON-em.');
             return;
           }
-          if (!isStateUpdate(parsed)) return;
+          if (!isStateUpdate(parsed)) {
+            logger(
+              'envelope',
+              'Odrzucono wiadomość WS: koperta nie odpowiada kontraktowi STATE_UPDATE ' +
+                '(sprawdź type/timestamp/areas). Wallboard przejdzie w offline po ' +
+                `${staleTimeoutMs / 1000}s mimo żywego połączenia.`
+            );
+            return;
+          }
 
-          lastSnapshots = mapAreasPayload(parsed, lastSnapshots, { historyLength });
+          lastSnapshots = mapAreasPayload(parsed, lastSnapshots, {
+            historyLength,
+            onInvalidMetric: ({ areaId, metricId, reason }) => {
+              // Rate-limited per metric, not globally: two different broken
+              // tags are two different problems and both deserve a line.
+              logger(
+                `metric:${areaId}:${metricId}`,
+                `Pominięto metrykę "${metricId}" (obszar ${areaId}) — niezgodna z ` +
+                  `kontraktem [${reason}]. Kafelek trzyma ostatnią znaną wartość; ` +
+                  'reszta wallboardu działa normalnie.'
+              );
+            },
+          });
           listener(lastSnapshots);
           reportStatus('live');
           attempt = 0;
