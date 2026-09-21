@@ -52,8 +52,54 @@ def test_chlodnia_2_and_3_have_only_sprezarki_and_pompy_groups():
         area = next(a for a in AREA_DEFINITIONS if a["id"] == area_id)
         group_ids = {g["id"] for g in area["device_groups"]}
         assert group_ids == {"sprezarki", "pompy"}
-        sprezarki = next(g for g in area["device_groups"] if g["id"] == "sprezarki")
-        assert {d["id"] for d in sprezarki["devices"]} == {"v301a", "v301b"}
+
+
+def test_chlodnia_2_sprezarki_are_v301a_v301b_placeholders():
+    area = next(a for a in AREA_DEFINITIONS if a["id"] == "chlodnia-2")
+    sprezarki = next(g for g in area["device_groups"] if g["id"] == "sprezarki")
+    assert {d["id"] for d in sprezarki["devices"]} == {"v301a", "v301b"}
+
+
+def test_chlodnia_2_and_3_pump_counts_differ_from_chlodnia_1():
+    chlodnia_2 = next(a for a in AREA_DEFINITIONS if a["id"] == "chlodnia-2")
+    pompy_2 = next(g for g in chlodnia_2["device_groups"] if g["id"] == "pompy")
+    assert {d["id"] for d in pompy_2["devices"]} == {"pompa-1", "pompa-2", "pompa-3", "pompa-4"}
+
+    chlodnia_3 = next(a for a in AREA_DEFINITIONS if a["id"] == "chlodnia-3")
+    pompy_3 = next(g for g in chlodnia_3["device_groups"] if g["id"] == "pompy")
+    assert {d["id"] for d in pompy_3["devices"]} == {"pompa-1"}
+    # Nawet przy jednej pompie, Pompa 1 zachowuje regułę "Pompa 1 ma Hz".
+    pompa1 = pompy_3["devices"][0]
+    assert pompa1["metric_ids"]["secondary"] == "chlodnia-3-pompa-1-hz"
+
+
+# Chłodnia 3 (wrzesień 2026): Darpin — praca + "poziom pracy", bez bitu
+# awarii w PLC w ogóle.
+def test_chlodnia_3_darpin_has_no_awaria_metric():
+    area = next(a for a in AREA_DEFINITIONS if a["id"] == "chlodnia-3")
+    sprezarki = next(g for g in area["device_groups"] if g["id"] == "sprezarki")
+    darpin = next(d for d in sprezarki["devices"] if d["id"] == "darpin")
+    assert "awaria" not in darpin["metric_ids"]
+    assert darpin["metric_ids"]["secondary"] == "chlodnia-3-darpin-poziom"
+
+    poziom_metric = next(m for m in area["metrics"] if m["id"] == "chlodnia-3-darpin-poziom")
+    assert poziom_metric["unit"] == ""
+    assert poziom_metric["decimals"] == 0
+    assert not any(m["id"] == "chlodnia-3-darpin-awaria" for m in area["metrics"])
+
+
+# Chłodnia 3 (wrzesień 2026): Rhoss — praca + DWA osobne bity awarii,
+# każdy jako własna, osobno nazwana metryka.
+def test_chlodnia_3_rhoss_has_two_separately_labeled_awaria_metrics():
+    area = next(a for a in AREA_DEFINITIONS if a["id"] == "chlodnia-3")
+    sprezarki = next(g for g in area["device_groups"] if g["id"] == "sprezarki")
+    rhoss = next(d for d in sprezarki["devices"] if d["id"] == "rhoss")
+    assert rhoss["metric_ids"]["awaria"] == ["chlodnia-3-rhoss-awaria-1", "chlodnia-3-rhoss-awaria-2"]
+
+    sterowania = next(m for m in area["metrics"] if m["id"] == "chlodnia-3-rhoss-awaria-1")
+    assert sterowania["label"] == "Rhoss — Alarm sterowania"
+    pompy_alarm = next(m for m in area["metrics"] if m["id"] == "chlodnia-3-rhoss-awaria-2")
+    assert pompy_alarm["label"] == "Rhoss — Alarm pompy"
 
 
 def test_each_device_yields_praca_and_awaria_bool_metrics_with_unit_decimals_zero():
@@ -61,7 +107,7 @@ def test_each_device_yields_praca_and_awaria_bool_metrics_with_unit_decimals_zer
     v101 = next(d for g in area["device_groups"] for d in g["devices"] if d["id"] == "v101")
     assert v101["metric_ids"]["praca"] == "chlodnia-1-v101-praca"
     assert v101["metric_ids"]["awaria"] == "chlodnia-1-v101-awaria"
-    assert "hz" not in v101["metric_ids"]
+    assert "secondary" not in v101["metric_ids"]
 
     praca_metric = next(m for m in area["metrics"] if m["id"] == "chlodnia-1-v101-praca")
     assert praca_metric["unit"] == ""
@@ -76,8 +122,8 @@ def test_pompa_1_has_extra_frequency_metric_in_hz_other_pumps_do_not():
     pompy = next(g for g in area["device_groups"] if g["id"] == "pompy")
     pompa1 = next(d for d in pompy["devices"] if d["id"] == "pompa-1")
     pompa2 = next(d for d in pompy["devices"] if d["id"] == "pompa-2")
-    assert pompa1["metric_ids"]["hz"] == "chlodnia-1-pompa-1-hz"
-    assert "hz" not in pompa2["metric_ids"]
+    assert pompa1["metric_ids"]["secondary"] == "chlodnia-1-pompa-1-hz"
+    assert "secondary" not in pompa2["metric_ids"]
 
     hz_metric = next(m for m in area["metrics"] if m["id"] == "chlodnia-1-pompa-1-hz")
     assert hz_metric["unit"] == "Hz"
@@ -92,12 +138,12 @@ def test_compressor_area_has_two_device_groups_magazyn_aluminium_and_magazyn_beb
     aluminium = next(g for g in area["device_groups"] if g["id"] == "magazyn-aluminium")
     assert [d["id"] for d in aluminium["devices"]] == ["aluminium-1", "aluminium-2"]
     assert [d["label"] for d in aluminium["devices"]] == ["Sprężarka 1", "Sprężarka 2"]
-    assert all("hz" not in d["metric_ids"] for d in aluminium["devices"])
+    assert all("secondary" not in d["metric_ids"] for d in aluminium["devices"])
 
     bebny = next(g for g in area["device_groups"] if g["id"] == "magazyn-bebnow")
     assert [d["id"] for d in bebny["devices"]] == ["bebny-1", "bebny-2"]
     assert [d["label"] for d in bebny["devices"]] == ["Sprężarka 1", "Sprężarka 2"]
-    assert all("hz" not in d["metric_ids"] for d in bebny["devices"])
+    assert all("secondary" not in d["metric_ids"] for d in bebny["devices"])
 
 
 def test_compressor_area_device_metric_ids_are_namespaced_per_area_and_device():

@@ -55,7 +55,7 @@ const SECTION_GRID_CLASSES: Record<number, string> = {
  * odrębne sekcje UI obok siebie — "Magazyn Aluminium" i "Magazyn Bębnów" —
  * każda z własną parą sprężarek (kafle PRACA/AWARIA, bez regulacji obrotów —
  * żadna z nich nie ma VFD, więc `DeviceStatusTile` nie dostaje tu ani
- * `frequencyHz`, ani `reserveFrequencyRow`) i własnymi odczytami
+ * `secondaryValue`, ani `reserveSecondaryRow`) i własnymi odczytami
  * analogowymi. Ten sam wzorzec komponentów (`DeviceStatusTile`,
  * `OverviewMetricTile`, `deriveDeviceGroupStatuses`) co `CoolingAreaView` —
  * celowo brak tu banera "wyłączona"/`deriveCoolingOperationalState`, bo

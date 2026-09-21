@@ -7,13 +7,23 @@ export interface MetricDefinition {
   decimals: number;
 }
 
-/** Metric id-y trzech bitów/wartości jednego urządzenia (kafel Chłodni
- * 1/2/3, sierpień 2026) — `hz` tylko dla urządzeń z regulacją obrotów
- * (patrz `DeviceSpec.hasFrequency`). */
+/** Metric id-y bitów/wartości jednego urządzenia (kafel Chłodni 1/2/3,
+ * sierpień 2026 → wrzesień 2026). Zgeneralizowane po dodaniu Chłodni 3
+ * (Darpin/Rhoss, faktyczne sprężarki — patrz komentarz przy `AREAS`):
+ * - `awaria` bywa NIEOBECNE (Darpin nie ma bitu awarii w ogóle — patrz
+ *   `DeviceSpec.hasAwaria`) albo tablicą WIELU bitów OR-owanych w jeden
+ *   status "fault" na kaflu (Rhoss: "alarm sterowania" + "alarm pompy" —
+ *   patrz `DeviceSpec.awariaLabels`), mimo że każdy bit nadal trafia do
+ *   `area.metrics` jako osobna, nazwana metryka (pasek alarmów pokazuje je
+ *   z osobna, kafel urządzenia — połączone).
+ * - `hz` (dawniej VFD-specific) stał się `secondary` — jedna, opcjonalna
+ *   dodatkowa wartość liczbowa urządzenia niezależna od jednostki: Hz dla
+ *   pompy z regulacją obrotów, ale też bezjednostkowy "poziom pracy"
+ *   sprężarki Darpin (patrz `DeviceSpec.secondaryMetric`). */
 export interface DeviceMetricIds {
   praca: string;
-  awaria: string;
-  hz?: string;
+  awaria?: string | string[];
+  secondary?: string;
 }
 
 export interface DeviceDefinition {
@@ -26,6 +36,12 @@ export interface DeviceGroupDefinition {
   id: string;
   label: string;
   devices: DeviceDefinition[];
+  /** Krótka informacja kioskowa pod nagłówkiem grupy (np. "sprężarki w
+   * trakcie podłączania do systemu") — wizualnie podrzędna wobec nagłówka,
+   * NIE alarmowa (patrz `CoolingAreaView`, `data-testid="device-group-note-
+   * ${group.id}"`). Generyczny mechanizm zamiast hardkodowania id obszaru w
+   * widoku — Chłodnia 2 używa go dziś, ale każda przyszła grupa może. */
+  note?: string;
 }
 
 export interface AreaDefinition {
@@ -42,70 +58,102 @@ export interface AreaDefinition {
   /** Kafle urządzeń (sprężarki/agregaty/pompy) na ekranie szczegółowym
    * Chłodni 1/2/3 — tylko dla obszarów typu 'cooling'. Świadome, udoku-
    * mentowane odejście od "AREAS zamrożone od Fazy 2" (decyzja #18,
-   * Concept.md) — każde urządzenie generuje dwie/trzy dodatkowe pozycje w
-   * `metrics` (PRACA/AWARIA/Hz, patrz `buildDeviceGroup`), bo to jedyne
-   * miejsce, które faktycznie steruje tym, co płynie przez WS/mock
-   * (mirror: `backend/app/domain/areas.py`). */
+   * Concept.md) — każde urządzenie generuje jedną-cztery dodatkowe pozycje w
+   * `metrics` (PRACA, zero/jeden/wiele bitów AWARIA, opcjonalna wartość
+   * dodatkowa — patrz `buildDeviceGroup`), bo to jedyne miejsce, które
+   * faktycznie steruje tym, co płynie przez WS/mock (mirror:
+   * `backend/app/domain/areas.py`). */
   deviceGroups?: DeviceGroupDefinition[];
 }
 
 interface DeviceSpec {
   id: string;
   label: string;
-  /** Urządzenie z regulacją obrotów (VFD) dodatkowo pokazuje zadaną
-   * częstotliwość w Hz na swoim kaflu (np. jedna z 5 pomp Hyamat). */
-  hasFrequency?: boolean;
+  /** Dodatkowa wartość liczbowa urządzenia poza PRACA/AWARIA — np.
+   * częstotliwość VFD (jedna z 5 pomp Hyamat) albo "poziom pracy" sprężarki
+   * Darpin (Chłodnia 3). `slug` buduje sufiks metric id
+   * (`${areaId}-${device.id}-${slug}`), `unit=''` renderuje się na kaflu bez
+   * jednostki (patrz `DeviceStatusTile`). */
+  secondaryMetric?: { slug: string; label: string; unit: string; decimals?: number };
+  /** `false` — urządzenie NIE ma bitu awarii wcale (Darpin, Chłodnia 3: PLC
+   * nie udostępnia takiego bitu). Domyślnie `true` (każde inne urządzenie w
+   * tym pliku ma dokładnie jeden bit awarii). */
+  hasAwaria?: boolean;
+  /** Gdy urządzenie ma WIĘCEJ NIŻ JEDEN bit awarii (Rhoss, Chłodnia 3: "alarm
+   * sterowania" + "alarm pompy") — każda etykieta generuje własną, osobno
+   * nazwaną metrykę (pasek alarmów pokazuje je z osobna), ale
+   * `DeviceMetricIds.awaria` staje się tablicą, a `deriveDeviceStatus` OR-uje
+   * wszystkie bity w jeden status "fault" kafla (kafel ma tylko jedną kropkę
+   * Awaria — decyzja użytkownika, nie dublujemy jej w `DeviceStatusTile`).
+   * Nadpisuje `hasAwaria` (obecność `awariaLabels` oznacza "ma awarię"). */
+  awariaLabels?: string[];
 }
 
 function buildDeviceGroup(
   areaId: string,
   groupId: string,
   groupLabel: string,
-  devices: DeviceSpec[]
+  devices: DeviceSpec[],
+  note?: string
 ): { group: DeviceGroupDefinition; metrics: MetricDefinition[] } {
   const metrics: MetricDefinition[] = [];
   const deviceDefs: DeviceDefinition[] = devices.map((device) => {
     const pracaId = `${areaId}-${device.id}-praca`;
-    const awariaId = `${areaId}-${device.id}-awaria`;
     metrics.push({ id: pracaId, label: `${device.label} — Praca`, unit: '', decimals: 0 });
-    metrics.push({ id: awariaId, label: `${device.label} — Awaria`, unit: '', decimals: 0 });
 
-    const metricIds: DeviceMetricIds = { praca: pracaId, awaria: awariaId };
-    if (device.hasFrequency) {
-      const hzId = `${areaId}-${device.id}-hz`;
-      metrics.push({ id: hzId, label: `${device.label} — Częstotliwość`, unit: 'Hz', decimals: 1 });
-      metricIds.hz = hzId;
+    const metricIds: DeviceMetricIds = { praca: pracaId };
+
+    if (device.awariaLabels && device.awariaLabels.length > 0) {
+      metricIds.awaria = device.awariaLabels.map((label, index) => {
+        const awariaId = `${areaId}-${device.id}-awaria-${index + 1}`;
+        metrics.push({ id: awariaId, label: `${device.label} — ${label}`, unit: '', decimals: 0 });
+        return awariaId;
+      });
+    } else if (device.hasAwaria !== false) {
+      const awariaId = `${areaId}-${device.id}-awaria`;
+      metrics.push({ id: awariaId, label: `${device.label} — Awaria`, unit: '', decimals: 0 });
+      metricIds.awaria = awariaId;
+    }
+
+    if (device.secondaryMetric) {
+      const { slug, label, unit, decimals = 0 } = device.secondaryMetric;
+      const secondaryId = `${areaId}-${device.id}-${slug}`;
+      metrics.push({ id: secondaryId, label: `${device.label} — ${label}`, unit, decimals });
+      metricIds.secondary = secondaryId;
     }
 
     return { id: device.id, label: device.label, metricIds };
   });
 
-  return { group: { id: groupId, label: groupLabel, devices: deviceDefs }, metrics };
+  return { group: { id: groupId, label: groupLabel, devices: deviceDefs, note }, metrics };
 }
 
 interface DeviceGroupSpec {
   id: string;
   label: string;
   devices: DeviceSpec[];
+  note?: string;
 }
 
-// Wspólna dla wszystkich 3 chłodni grupa 5 pomp obiegowych stacji Hyamat —
-// jedna z nich ma regulację obrotów (VFD), więc dodatkowo pokazuje zadaną
-// częstotliwość w Hz. Nazwy "Pompa 1..5" są robocze (brak realnych nazw
-// punktów PLC w źródłowych notatkach) — `Tag.label` jest edytowalny w
-// panelu admina, nie blokuje to podpięcia realnych bitów później.
-function pumpGroupSpec(): DeviceGroupSpec {
-  return {
-    id: 'pompy',
-    label: 'Pompy obiegowe',
-    devices: [
-      { id: 'pompa-1', label: 'Pompa 1', hasFrequency: true },
-      { id: 'pompa-2', label: 'Pompa 2' },
-      { id: 'pompa-3', label: 'Pompa 3' },
-      { id: 'pompa-4', label: 'Pompa 4' },
-      { id: 'pompa-5', label: 'Pompa 5' },
-    ],
-  };
+// Wspólny wzorzec pomp obiegowych stacji Hyamat dla wszystkich 3 chłodni —
+// TYLKO Pompa 1 ma regulację obrotów (VFD), więc dodatkowo pokazuje zadaną
+// częstotliwość w Hz; liczba pomp różni się per chłodnia (Chłodnia 1: 5,
+// Chłodnia 2: 4, Chłodnia 3: 1 — potwierdzone przez użytkownika), stąd
+// parametr `count` zamiast sztywnej listy. Nazwy "Pompa 1..N" są robocze
+// (brak realnych nazw punktów PLC w źródłowych notatkach) — `Tag.label` jest
+// edytowalny w panelu admina, nie blokuje to podpięcia realnych bitów
+// później.
+function pumpGroupSpec(count: number): DeviceGroupSpec {
+  const devices: DeviceSpec[] = Array.from({ length: count }, (_, index) => {
+    const n = index + 1;
+    const device: DeviceSpec = { id: `pompa-${n}`, label: `Pompa ${n}` };
+    if (n === 1) {
+      device.secondaryMetric = { slug: 'hz', label: 'Częstotliwość', unit: 'Hz', decimals: 1 };
+    }
+    return device;
+  });
+
+  return { id: 'pompy', label: 'Pompy obiegowe', devices };
 }
 
 function coolingArea(
@@ -120,7 +168,9 @@ function coolingArea(
     { id: `${id}-level`, label: 'Poziom wody w zbiorniku', unit: 'cm', decimals: 0 },
   ];
 
-  const built = deviceGroupSpecs.map((spec) => buildDeviceGroup(id, spec.id, spec.label, spec.devices));
+  const built = deviceGroupSpecs.map((spec) =>
+    buildDeviceGroup(id, spec.id, spec.label, spec.devices, spec.note)
+  );
 
   return {
     id,
@@ -238,9 +288,28 @@ function powerArea(): AreaDefinition {
 // zbiornika jest niższa niż zakładano pierwotnie — przy 150cm zbiornik jest
 // w pełni "zatopiony" (100% wypełnienia), reszta logiki (ratio = clamp(
 // valueCm/maxCm, 0, 1)) nie wymaga żadnej zmiany.
+//
 // Chłodnia 1 ma DWIE osobne grupy sprężarkowe (Sprężarki: V101/V201,
-// Agregaty: KWR125A/KWR125B), Chłodnia 2/3 mają tylko jedną (Sprężarki:
-// V301A/V301B) — potwierdzone wprost przez użytkownika, nie założenie.
+// Agregaty: KWR125A/KWR125B) i 5 pomp obiegowych — potwierdzone wprost przez
+// użytkownika, nie założenie.
+//
+// Chłodnia 2 ma jedną grupę sprężarkową (Sprężarki: V301A/V301B) i 4 pompy
+// obiegowe. Sprężarki V301A/V301B fizycznie istnieją, ale są w trakcie
+// podłączania do systemu PLC (wrzesień 2026) — kafle zostają jako
+// placeholder (PRACA/AWARIA), grupa dostaje `note` z informacją dla
+// operatora zamiast czekać z całym ekranem na dokończenie podłączenia.
+//
+// Chłodnia 3 KOREKTA (wrzesień 2026, potwierdzone wprost przez użytkownika —
+// wcześniejszy komentarz w tym miejscu zakładał identyczne V301A/V301B jak
+// Chłodnia 2, co było błędnym założeniem, nie faktem): fizycznie ma DWIE
+// RÓŻNE jednostki sprężarkowe, nie parę bliźniaczych sprężarek:
+// - Darpin: jeden bit PRACA + jedna wartość INT "poziom pracy sprężarki"
+//   (`secondaryMetric`) — BRAK bitu awarii w PLC (`hasAwaria: false`).
+// - Rhoss: jeden bit PRACA + DWA osobne bity awarii — "alarm sterowania" i
+//   "alarm pompy" (`awariaLabels`) — OR-owane w jeden status "fault" na
+//   kaflu (`deriveDeviceStatus`), ale nadal dwie osobno nazwane metryki dla
+//   paska alarmów.
+// Chłodnia 3 ma tylko 1 pompę obiegową (nie 5/4 jak Chłodnia 1/2).
 export const AREAS: AreaDefinition[] = [
   coolingArea('chlodnia-1', 'Chłodnia 1', 150, [
     {
@@ -259,29 +328,39 @@ export const AREAS: AreaDefinition[] = [
         { id: 'kwr125b', label: 'KWR125B' },
       ],
     },
-    pumpGroupSpec(),
+    pumpGroupSpec(5),
   ]),
   coolingArea('chlodnia-2', 'Chłodnia 2', 150, [
     {
       id: 'sprezarki',
       label: 'Sprężarki',
+      note: 'Sprężarki w trakcie podłączania do systemu.',
       devices: [
         { id: 'v301a', label: 'V301A' },
         { id: 'v301b', label: 'V301B' },
       ],
     },
-    pumpGroupSpec(),
+    pumpGroupSpec(4),
   ]),
   coolingArea('chlodnia-3', 'Chłodnia 3', 150, [
     {
       id: 'sprezarki',
       label: 'Sprężarki',
       devices: [
-        { id: 'v301a', label: 'V301A' },
-        { id: 'v301b', label: 'V301B' },
+        {
+          id: 'darpin',
+          label: 'Darpin',
+          secondaryMetric: { slug: 'poziom', label: 'Poziom pracy', unit: '', decimals: 0 },
+          hasAwaria: false,
+        },
+        {
+          id: 'rhoss',
+          label: 'Rhoss',
+          awariaLabels: ['Alarm sterowania', 'Alarm pompy'],
+        },
       ],
     },
-    pumpGroupSpec(),
+    pumpGroupSpec(1),
   ]),
   compressorArea(),
   powerArea(),

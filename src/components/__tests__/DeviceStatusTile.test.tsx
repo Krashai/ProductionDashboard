@@ -67,37 +67,80 @@ describe('DeviceStatusTile', () => {
     expect(container.firstChild).toHaveClass('opacity-75');
   });
 
-  test('frequencyHz=null, reserveFrequencyRow=false (domyślnie): nie renderuje wiersza Hz wcale', () => {
+  test('secondaryValue=null, reserveSecondaryRow=false (domyślnie): nie renderuje wiersza wcale', () => {
     render(<DeviceStatusTile label="V101" running={true} fault={false} />);
-    expect(screen.queryByTestId('device-hz-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('device-secondary-row')).not.toBeInTheDocument();
   });
 
-  test('frequencyHz=null, reserveFrequencyRow=true: wiersz Hz zostaje w DOM (rezerwuje wysokość), ale jest niewidoczny', () => {
+  test('secondaryValue=null, reserveSecondaryRow=true: wiersz zostaje w DOM (rezerwuje wysokość), ale jest niewidoczny', () => {
     const { getByTestId } = render(
-      <DeviceStatusTile label="Pompa 2" running={true} fault={false} reserveFrequencyRow />
+      <DeviceStatusTile label="Pompa 2" running={true} fault={false} reserveSecondaryRow />
     );
-    const hzRow = getByTestId('device-hz-row');
-    expect(hzRow).toBeInTheDocument();
-    expect(hzRow).toHaveClass('invisible');
-    expect(hzRow).toHaveAttribute('aria-hidden', 'true');
+    const secondaryRow = getByTestId('device-secondary-row');
+    expect(secondaryRow).toBeInTheDocument();
+    expect(secondaryRow).toHaveClass('invisible');
+    expect(secondaryRow).toHaveAttribute('aria-hidden', 'true');
   });
 
-  test('frequencyHz podane: renderuje wartość z jednostką Hz, wiersz jest widoczny', () => {
-    const { getByTestId } = render(<DeviceStatusTile label="Pompa 1" running={true} fault={false} frequencyHz={42.5} />);
+  test('secondaryValue podane z jednostką Hz: renderuje wartość z jednostką, wiersz jest widoczny', () => {
+    const { getByTestId } = render(
+      <DeviceStatusTile label="Pompa 1" running={true} fault={false} secondaryValue={42.5} secondaryUnit="Hz" />
+    );
     expect(screen.getByText('42.5')).toBeInTheDocument();
     expect(screen.getByText('Hz')).toBeInTheDocument();
-    const hzRow = getByTestId('device-hz-row');
-    expect(hzRow).not.toHaveClass('invisible');
-    expect(hzRow).not.toHaveAttribute('aria-hidden');
+    const secondaryRow = getByTestId('device-secondary-row');
+    expect(secondaryRow).not.toHaveClass('invisible');
+    expect(secondaryRow).not.toHaveAttribute('aria-hidden');
     // Herc to "Hz", nie "HZ" — asercja po klasie, bo `text-transform` nie
     // zmienia treści DOM (patrz analogiczny test w OverviewMetricTile.test).
     expect(screen.getByText('Hz').className).not.toMatch(/uppercase|lowercase|capitalize/);
   });
 
-  test('frequencyHz podane + offline: pokazuje "—" zamiast wartości', () => {
-    render(<DeviceStatusTile label="Pompa 1" running={false} fault={false} frequencyHz={42.5} offline />);
+  test('secondaryValue podane + offline: pokazuje "—" zamiast wartości', () => {
+    render(<DeviceStatusTile label="Pompa 1" running={false} fault={false} secondaryValue={42.5} secondaryUnit="Hz" offline />);
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.queryByText('42.5')).not.toBeInTheDocument();
+  });
+
+  // Chłodnia 3 (wrzesień 2026): Darpin — "poziom pracy" bez jednostki, liczba
+  // całkowita (secondaryDecimals=0, tak jak realnie dostarcza CoolingAreaView
+  // z `device.secondaryDecimals`) — inaczej dyskretny poziom pracy wyglądałby
+  // na kiosku jak pomiar analogowy ("2.0").
+  test('secondaryUnit="" (falsy): renderuje wartość BEZ elementu jednostki (brak osieroconej spacji/pustego <span>)', () => {
+    const { getByTestId } = render(
+      <DeviceStatusTile
+        label="Darpin"
+        running={true}
+        fault={false}
+        secondaryValue={2}
+        secondaryUnit=""
+        secondaryDecimals={0}
+      />
+    );
+    const secondaryRow = getByTestId('device-secondary-row');
+    expect(secondaryRow).toHaveTextContent('2');
+    expect(secondaryRow).not.toHaveTextContent('2.0');
+    // Dokładnie jeden potomek — wartość; brak drugiego elementu na jednostkę.
+    expect(secondaryRow.children).toHaveLength(1);
+  });
+
+  test('secondaryDecimals domyślnie 1 (zgodność wsteczna z Hz), jawne 0 obcina miejsca po przecinku', () => {
+    const { rerender, getByTestId } = render(
+      <DeviceStatusTile label="Pompa 1" running={true} fault={false} secondaryValue={42} secondaryUnit="Hz" />
+    );
+    expect(getByTestId('device-secondary-row')).toHaveTextContent('42.0');
+
+    rerender(
+      <DeviceStatusTile
+        label="Darpin"
+        running={true}
+        fault={false}
+        secondaryValue={2}
+        secondaryUnit=""
+        secondaryDecimals={0}
+      />
+    );
+    expect(getByTestId('device-secondary-row')).toHaveTextContent('2');
   });
 
   describe('pasek akcentu (deviceAccentBarClasses)', () => {

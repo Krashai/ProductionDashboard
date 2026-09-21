@@ -30,7 +30,7 @@ const DEVICE_GROUPS: DeviceGroupDefinition[] = [
         metricIds: {
           praca: 'chlodnia-1-pompa-1-praca',
           awaria: 'chlodnia-1-pompa-1-awaria',
-          hz: 'chlodnia-1-pompa-1-hz',
+          secondary: 'chlodnia-1-pompa-1-hz',
         },
       },
       { id: 'pompa-2', label: 'Pompa 2', metricIds: { praca: 'chlodnia-1-pompa-2-praca', awaria: 'chlodnia-1-pompa-2-awaria' } },
@@ -211,10 +211,10 @@ describe('CoolingAreaView', () => {
       const pompa1 = container.querySelector('[data-testid="device-tile-pompa-1"]')!;
       const pompa2 = container.querySelector('[data-testid="device-tile-pompa-2"]')!;
       expect(pompa1.textContent).toMatch(/42\.5/);
-      // Pompa 2 (bez regulacji obrotów) nadal renderuje wiersz Hz w DOM —
-      // rezerwuje jego wysokość, żeby rząd kafli pomp był symetryczny — ale
-      // ten wiersz zostaje niewidoczny.
-      expect(pompa2.querySelector('[data-testid="device-hz-row"]')).toHaveClass('invisible');
+      // Pompa 2 (bez regulacji obrotów) nadal renderuje wiersz sekundarny w
+      // DOM — rezerwuje jego wysokość, żeby rząd kafli pomp był symetryczny —
+      // ale ten wiersz zostaje niewidoczny.
+      expect(pompa2.querySelector('[data-testid="device-secondary-row"]')).toHaveClass('invisible');
     });
 
     test('isOnline=false propaguje offline do kafli urządzeń', () => {
@@ -251,6 +251,37 @@ describe('CoolingAreaView', () => {
       expect(badge.className).toMatch(/animate-alarm-flash/);
       // Awaria dotyczy tylko grupy "sprężarki" — grupa "pompy" zostaje neutralna.
       expect(getByTestId('device-group-summary-pompy').className).not.toMatch(/bg-rose-50/);
+    });
+  });
+
+  // Chłodnia 2 (wrzesień 2026): sprężarki V301A/V301B fizycznie istnieją, ale
+  // są w trakcie podłączania do systemu — grupa dostaje informacyjną notatkę
+  // zamiast czekania z całym ekranem.
+  describe('notatka informacyjna grupy (group.note)', () => {
+    const groupsWithNote: DeviceGroupDefinition[] = [
+      { ...DEVICE_GROUPS[0], note: 'Sprężarki w trakcie podłączania do systemu.' },
+      DEVICE_GROUPS[1],
+    ];
+    const definitionWithNote: AreaDefinition = { ...definition, deviceGroups: groupsWithNote };
+
+    test('renderuje notatkę pod nagłówkiem grupy, gdy group.note jest ustawione', () => {
+      const withDevices = snapshot({ metrics: [...baseMetrics(), ...runningPumpMetrics()] });
+      const { getByTestId } = render(<CoolingAreaView area={withDevices} definition={definitionWithNote} />);
+      expect(getByTestId('device-group-note-sprezarki')).toHaveTextContent(
+        'Sprężarki w trakcie podłączania do systemu.'
+      );
+    });
+
+    test('nie renderuje notatki dla grupy bez group.note', () => {
+      const withDevices = snapshot({ metrics: [...baseMetrics(), ...runningPumpMetrics()] });
+      const { queryByTestId } = render(<CoolingAreaView area={withDevices} definition={definitionWithNote} />);
+      expect(queryByTestId('device-group-note-pompy')).not.toBeInTheDocument();
+    });
+
+    test('nie renderuje żadnej notatki, gdy żadna grupa jej nie ma (definitionWithDevices)', () => {
+      const withDevices = snapshot({ metrics: [...baseMetrics(), ...runningPumpMetrics()] });
+      const { container } = render(<CoolingAreaView area={withDevices} definition={definitionWithDevices} />);
+      expect(container.querySelector('[data-testid^="device-group-note-"]')).not.toBeInTheDocument();
     });
   });
 

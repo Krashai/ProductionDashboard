@@ -124,7 +124,7 @@ describe('AREAS registry', () => {
         .find((d) => d.id === 'v101')!;
       expect(v101.metricIds.praca).toBe('chlodnia-1-v101-praca');
       expect(v101.metricIds.awaria).toBe('chlodnia-1-v101-awaria');
-      expect(v101.metricIds.hz).toBeUndefined();
+      expect(v101.metricIds.secondary).toBeUndefined();
 
       const pracaMetric = chlodnia1.metrics.find((m) => m.id === 'chlodnia-1-v101-praca')!;
       expect(pracaMetric.unit).toBe('');
@@ -136,12 +136,100 @@ describe('AREAS registry', () => {
       const pompy = chlodnia1.deviceGroups?.find((g) => g.id === 'pompy')!;
       const pompa1 = pompy.devices.find((d) => d.id === 'pompa-1')!;
       const pompa2 = pompy.devices.find((d) => d.id === 'pompa-2')!;
-      expect(pompa1.metricIds.hz).toBe('chlodnia-1-pompa-1-hz');
-      expect(pompa2.metricIds.hz).toBeUndefined();
+      expect(pompa1.metricIds.secondary).toBe('chlodnia-1-pompa-1-hz');
+      expect(pompa2.metricIds.secondary).toBeUndefined();
 
       const hzMetric = chlodnia1.metrics.find((m) => m.id === 'chlodnia-1-pompa-1-hz')!;
       expect(hzMetric.unit).toBe('Hz');
       expect(hzMetric.decimals).toBe(1);
+    });
+
+    // Regresja: `pumpGroupSpec(5)` MUSI produkować identyczne id/etykiety
+    // jak dawna sztywna lista "Pompa 1..5" sprzed refaktora na parametr
+    // `count` — publiczny kontrakt, na którym mogą polegać inne miejsca.
+    test('Chłodnia 1: pumpGroupSpec(5) generuje Pompa 1..5 z identycznymi metric id jak przed refaktorem', () => {
+      const chlodnia1 = coolingAreas.find((a) => a.id === 'chlodnia-1')!;
+      const pompy = chlodnia1.deviceGroups?.find((g) => g.id === 'pompy')!;
+      expect(pompy.label).toBe('Pompy obiegowe');
+      expect(pompy.devices.map((d) => d.id)).toEqual(['pompa-1', 'pompa-2', 'pompa-3', 'pompa-4', 'pompa-5']);
+      expect(pompy.devices.map((d) => d.label)).toEqual(['Pompa 1', 'Pompa 2', 'Pompa 3', 'Pompa 4', 'Pompa 5']);
+
+      for (const n of [1, 2, 3, 4, 5]) {
+        const device = pompy.devices.find((d) => d.id === `pompa-${n}`)!;
+        expect(device.metricIds.praca).toBe(`chlodnia-1-pompa-${n}-praca`);
+        expect(device.metricIds.awaria).toBe(`chlodnia-1-pompa-${n}-awaria`);
+      }
+      expect(pompy.devices.find((d) => d.id === 'pompa-1')!.metricIds.secondary).toBe('chlodnia-1-pompa-1-hz');
+      for (const n of [2, 3, 4, 5]) {
+        expect(pompy.devices.find((d) => d.id === `pompa-${n}`)!.metricIds.secondary).toBeUndefined();
+      }
+    });
+
+    test('Chłodnia 2 ma 4 pompy obiegowe, tylko Pompa 1 z sekundarną metryką Hz', () => {
+      const chlodnia2 = coolingAreas.find((a) => a.id === 'chlodnia-2')!;
+      const pompy = chlodnia2.deviceGroups?.find((g) => g.id === 'pompy')!;
+      expect(pompy.devices.map((d) => d.id)).toEqual(['pompa-1', 'pompa-2', 'pompa-3', 'pompa-4']);
+      expect(pompy.devices.find((d) => d.id === 'pompa-1')!.metricIds.secondary).toBe('chlodnia-2-pompa-1-hz');
+      for (const n of [2, 3, 4]) {
+        expect(pompy.devices.find((d) => d.id === `pompa-${n}`)!.metricIds.secondary).toBeUndefined();
+      }
+    });
+
+    test('Chłodnia 2: grupa sprężarek ma informacyjną notatkę o podłączaniu do systemu', () => {
+      const chlodnia2 = coolingAreas.find((a) => a.id === 'chlodnia-2')!;
+      const sprezarki = chlodnia2.deviceGroups?.find((g) => g.id === 'sprezarki')!;
+      expect(sprezarki.note).toBe('Sprężarki w trakcie podłączania do systemu.');
+      expect(sprezarki.devices.map((d) => d.id)).toEqual(['v301a', 'v301b']);
+    });
+
+    test('Chłodnia 3 ma tylko 1 pompę obiegową (bez sekundarnej metryki Hz)', () => {
+      const chlodnia3 = coolingAreas.find((a) => a.id === 'chlodnia-3')!;
+      const pompy = chlodnia3.deviceGroups?.find((g) => g.id === 'pompy')!;
+      expect(pompy.devices.map((d) => d.id)).toEqual(['pompa-1']);
+      // Jedyna pompa w grupie JEST "Pompą 1" — nadal ma sekundarną metrykę Hz
+      // (reguła "Pompa 1 ma Hz" nie zależy od liczby pomp w grupie).
+      expect(pompy.devices[0].metricIds.secondary).toBe('chlodnia-3-pompa-1-hz');
+    });
+
+    describe('Chłodnia 3: sprężarki Darpin/Rhoss (korekta faktów, nie V301A/V301B)', () => {
+      const chlodnia3 = coolingAreas.find((a) => a.id === 'chlodnia-3')!;
+      const sprezarki = chlodnia3.deviceGroups?.find((g) => g.id === 'sprezarki')!;
+
+      test('grupa sprężarek ma dokładnie Darpin i Rhoss (nie V301A/V301B)', () => {
+        expect(sprezarki.devices.map((d) => d.id)).toEqual(['darpin', 'rhoss']);
+        expect(sprezarki.devices.map((d) => d.label)).toEqual(['Darpin', 'Rhoss']);
+      });
+
+      test('Darpin: ma metrykę PRACA i sekundarną "poziom pracy" (unit=""), BRAK metryki AWARIA', () => {
+        const darpin = sprezarki.devices.find((d) => d.id === 'darpin')!;
+        expect(darpin.metricIds.praca).toBe('chlodnia-3-darpin-praca');
+        expect(darpin.metricIds.awaria).toBeUndefined();
+        expect(darpin.metricIds.secondary).toBe('chlodnia-3-darpin-poziom');
+
+        const poziomMetric = chlodnia3.metrics.find((m) => m.id === 'chlodnia-3-darpin-poziom')!;
+        expect(poziomMetric.unit).toBe('');
+        expect(poziomMetric.label).toBe('Darpin — Poziom pracy');
+
+        const awariaMetric = chlodnia3.metrics.find((m) => m.id === 'chlodnia-3-darpin-awaria');
+        expect(awariaMetric).toBeUndefined();
+      });
+
+      test('Rhoss: ma metrykę PRACA i DWIE osobne, nazwane metryki AWARIA (sterowania/pompy)', () => {
+        const rhoss = sprezarki.devices.find((d) => d.id === 'rhoss')!;
+        expect(rhoss.metricIds.praca).toBe('chlodnia-3-rhoss-praca');
+        expect(Array.isArray(rhoss.metricIds.awaria)).toBe(true);
+        const awariaIds = rhoss.metricIds.awaria as string[];
+        expect(awariaIds).toHaveLength(2);
+
+        const labels = awariaIds.map((id) => chlodnia3.metrics.find((m) => m.id === id)?.label);
+        expect(labels).toEqual(['Rhoss — Alarm sterowania', 'Rhoss — Alarm pompy']);
+        expect(rhoss.metricIds.secondary).toBeUndefined();
+      });
+
+      test('id metryk Darpin/Rhoss są unikalne w obrębie area.metrics', () => {
+        const ids = chlodnia3.metrics.map((m) => m.id);
+        expect(new Set(ids).size).toBe(ids.length);
+      });
     });
   });
 
@@ -171,7 +259,7 @@ describe('AREAS registry', () => {
       expect(group.devices.map((d) => d.id)).toEqual(['aluminium-1', 'aluminium-2']);
       expect(group.devices.map((d) => d.label)).toEqual(['Sprężarka 1', 'Sprężarka 2']);
       for (const device of group.devices) {
-        expect(device.metricIds.hz).toBeUndefined();
+        expect(device.metricIds.secondary).toBeUndefined();
       }
     });
 
@@ -181,7 +269,7 @@ describe('AREAS registry', () => {
       expect(group.devices.map((d) => d.id)).toEqual(['bebny-1', 'bebny-2']);
       expect(group.devices.map((d) => d.label)).toEqual(['Sprężarka 1', 'Sprężarka 2']);
       for (const device of group.devices) {
-        expect(device.metricIds.hz).toBeUndefined();
+        expect(device.metricIds.secondary).toBeUndefined();
       }
     });
 

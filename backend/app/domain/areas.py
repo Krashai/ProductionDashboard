@@ -33,8 +33,8 @@ class MetricDefinition(TypedDict):
 
 class DeviceMetricIds(TypedDict, total=False):
     praca: str
-    awaria: str
-    hz: str
+    awaria: str | list[str]
+    secondary: str
 
 
 class DeviceDefinition(TypedDict):
@@ -49,10 +49,34 @@ class DeviceGroupDefinition(TypedDict):
     devices: list[DeviceDefinition]
 
 
+class SecondaryMetricSpec(TypedDict, total=False):
+    slug: str
+    label: str
+    unit: str
+    decimals: int
+
+
 class DeviceSpec(TypedDict, total=False):
     id: str
     label: str
-    has_frequency: bool
+    # Zgeneralizowane z dawnego `has_frequency`/`hz` (wrzesień 2026, Chłodnia
+    # 3): jedna, opcjonalna dodatkowa wartość liczbowa urządzenia niezależna
+    # od jednostki — Hz dla pompy VFD, ale też bezjednostkowy "poziom pracy"
+    # sprężarki Darpin. `slug` buduje sufiks metric id
+    # (`{area_id}-{device_id}-{slug}`), `unit=""` renderuje się na kaflu bez
+    # jednostki — mirror `src/lib/areas.ts::DeviceSpec.secondaryMetric`.
+    secondary_metric: SecondaryMetricSpec
+    # `False` — urządzenie NIE ma bitu awarii wcale (Darpin: PLC nie
+    # udostępnia takiego bitu). Domyślnie `True` (każde inne urządzenie w tym
+    # pliku ma dokładnie jeden bit awarii) — mirror
+    # `src/lib/areas.ts::DeviceSpec.hasAwaria`.
+    has_awaria: bool
+    # Gdy urządzenie ma WIĘCEJ NIŻ JEDEN bit awarii (Rhoss: "alarm
+    # sterowania" + "alarm pompy") — każda etykieta generuje własną, osobno
+    # nazwaną metrykę, a `metric_ids["awaria"]` staje się listą. Nadpisuje
+    # `has_awaria` (obecność `awaria_labels` oznacza "ma awarię") — mirror
+    # `src/lib/areas.ts::DeviceSpec.awariaLabels`.
+    awaria_labels: list[str]
 
 
 class AreaDefinition(TypedDict, total=False):
@@ -65,49 +89,81 @@ class AreaDefinition(TypedDict, total=False):
 
 
 def _build_device_group(
-    area_id: str, group_id: str, group_label: str, devices: list[DeviceSpec]
+    area_id: str,
+    group_id: str,
+    group_label: str,
+    devices: list[DeviceSpec],
 ) -> tuple[DeviceGroupDefinition, list[MetricDefinition]]:
-    """Każde urządzenie w grupie dostaje dwa bity — PRACA/AWARIA (0/1, jak dziś
-    zwykła metryka analogowa: `Tag.type=BOOL` dekoduje się do liczby 0/1
-    — koercja `int(...)` w `app.plc.decode.decode_tag_value`, gałąź BOOL;
-    samo `snap7.util.get_bool` zwraca boola, co łamie kontrakt drutowy) — i opcjonalnie trzecią metrykę Hz dla
-    urządzeń z regulacją obrotów (np. pompa VFD). Zwraca zarówno definicję
-    grupy (do `AreaDefinition.device_groups`, używaną przez front do
-    grupowania kafli) jak i płaską listę wygenerowanych `MetricDefinition`
-    (do dopisania do `AreaDefinition.metrics` — to jest jedyne miejsce, które
-    faktycznie steruje tym, co trafia do WS payloadu/panelu admina, patrz
-    `app.plc.aggregator.build_area_payload` i `app.api.tags`).
+    """Każde urządzenie w grupie dostaje bit PRACA (0/1, jak dziś zwykła
+    metryka analogowa: `Tag.type=BOOL` dekoduje się do liczby 0/1 — koercja
+    `int(...)` w `app.plc.decode.decode_tag_value`, gałąź BOOL; samo
+    `snap7.util.get_bool` zwraca boola, co łamie kontrakt drutowy) —
+    zero/jeden/wiele bitów AWARIA (`has_awaria`/`awaria_labels`, wrzesień
+    2026: Darpin nie ma żadnego, Rhoss ma dwa osobno nazwane) — i opcjonalnie
+    jedną dodatkową wartość liczbową (`secondary_metric`, dawniej Hz-specific
+    `has_frequency` — teraz też bezjednostkowy "poziom pracy" Darpin). Zwraca
+    zarówno definicję grupy (do `AreaDefinition.device_groups`, używaną przez
+    front do grupowania kafli) jak i płaską listę wygenerowanych
+    `MetricDefinition` (do dopisania do `AreaDefinition.metrics` — to jest
+    jedyne miejsce, które faktycznie steruje tym, co trafia do WS
+    payloadu/panelu admina, patrz `app.plc.aggregator.build_area_payload` i
+    `app.api.tags`). Mirror `src/lib/areas.ts::buildDeviceGroup`.
     """
     metrics: list[MetricDefinition] = []
     devices_out: list[DeviceDefinition] = []
     for device in devices:
         praca_id = f"{area_id}-{device['id']}-praca"
-        awaria_id = f"{area_id}-{device['id']}-awaria"
         metrics.append({"id": praca_id, "label": f"{device['label']} — Praca", "unit": "", "decimals": 0})
-        metrics.append({"id": awaria_id, "label": f"{device['label']} — Awaria", "unit": "", "decimals": 0})
-        metric_ids: DeviceMetricIds = {"praca": praca_id, "awaria": awaria_id}
-        if device.get("has_frequency"):
-            hz_id = f"{area_id}-{device['id']}-hz"
-            metrics.append({"id": hz_id, "label": f"{device['label']} — Częstotliwość", "unit": "Hz", "decimals": 1})
-            metric_ids["hz"] = hz_id
+        metric_ids: DeviceMetricIds = {"praca": praca_id}
+
+        awaria_labels = device.get("awaria_labels")
+        if awaria_labels:
+            awaria_ids: list[str] = []
+            for index, label in enumerate(awaria_labels):
+                awaria_id = f"{area_id}-{device['id']}-awaria-{index + 1}"
+                metrics.append({"id": awaria_id, "label": f"{device['label']} — {label}", "unit": "", "decimals": 0})
+                awaria_ids.append(awaria_id)
+            metric_ids["awaria"] = awaria_ids
+        elif device.get("has_awaria", True):
+            awaria_id = f"{area_id}-{device['id']}-awaria"
+            metrics.append({"id": awaria_id, "label": f"{device['label']} — Awaria", "unit": "", "decimals": 0})
+            metric_ids["awaria"] = awaria_id
+
+        secondary_metric = device.get("secondary_metric")
+        if secondary_metric:
+            slug = secondary_metric["slug"]
+            secondary_id = f"{area_id}-{device['id']}-{slug}"
+            metrics.append(
+                {
+                    "id": secondary_id,
+                    "label": f"{device['label']} — {secondary_metric['label']}",
+                    "unit": secondary_metric["unit"],
+                    "decimals": secondary_metric.get("decimals", 0),
+                }
+            )
+            metric_ids["secondary"] = secondary_id
+
         devices_out.append({"id": device["id"], "label": device["label"], "metric_ids": metric_ids})
 
     return {"id": group_id, "label": group_label, "devices": devices_out}, metrics
 
 
-# Wspólna dla wszystkich 3 chłodni grupa 5 pomp obiegowych stacji Hyamat —
-# jedna z nich (Pompa 1) ma regulację obrotów (VFD), więc dodatkowo pokazuje
-# zadaną częstotliwość w Hz. Nazwy "Pompa 1..5" są robocze (brak realnych
-# nazw punktów PLC w źródłowych notatkach) — `Tag.label` jest edytowalny w
-# panelu admina, więc nie blokuje to podpięcia realnych bitów później.
-def _pump_group_spec() -> list[DeviceSpec]:
-    return [
-        {"id": "pompa-1", "label": "Pompa 1", "has_frequency": True},
-        {"id": "pompa-2", "label": "Pompa 2"},
-        {"id": "pompa-3", "label": "Pompa 3"},
-        {"id": "pompa-4", "label": "Pompa 4"},
-        {"id": "pompa-5", "label": "Pompa 5"},
-    ]
+# Wspólny wzorzec pomp obiegowych stacji Hyamat dla wszystkich 3 chłodni —
+# TYLKO Pompa 1 ma regulację obrotów (VFD), więc dodatkowo pokazuje zadaną
+# częstotliwość w Hz; liczba pomp różni się per chłodnia (Chłodnia 1: 5,
+# Chłodnia 2: 4, Chłodnia 3: 1 — potwierdzone przez użytkownika, wrzesień
+# 2026), stąd parametr `count` zamiast sztywnej listy. Nazwy "Pompa 1..N" są
+# robocze (brak realnych nazw punktów PLC w źródłowych notatkach) —
+# `Tag.label` jest edytowalny w panelu admina, więc nie blokuje to podpięcia
+# realnych bitów później. Mirror `src/lib/areas.ts::pumpGroupSpec`.
+def _pump_group_spec(count: int) -> list[DeviceSpec]:
+    devices: list[DeviceSpec] = []
+    for n in range(1, count + 1):
+        device: DeviceSpec = {"id": f"pompa-{n}", "label": f"Pompa {n}"}
+        if n == 1:
+            device["secondary_metric"] = {"slug": "hz", "label": "Częstotliwość", "unit": "Hz", "decimals": 1}
+        devices.append(device)
+    return devices
 
 
 def _cooling_area(
@@ -284,8 +340,23 @@ def _power_area() -> AreaDefinition:
 
 
 # Chłodnia 1 ma DWIE osobne grupy sprężarkowe (Sprężarki: V101/V201, Agregaty:
-# KWR125A/KWR125B), Chłodnia 2/3 mają tylko jedną (Sprężarki: V301A/V301B) —
-# potwierdzone wprost przez użytkownika, nie założenie agenta.
+# KWR125A/KWR125B) i 5 pomp obiegowych. Chłodnia 2 ma jedną grupę sprężarkową
+# (Sprężarki: V301A/V301B, fizycznie istnieją, ale są w trakcie podłączania do
+# systemu PLC — UI-only `note` na `DeviceGroupDefinition` we froncie, backend
+# go nie mirroruje, bo nie wpływa na kontrakt metryk/walidację tagów) i 4
+# pompy obiegowe.
+#
+# Chłodnia 3 KOREKTA (wrzesień 2026, potwierdzone wprost przez użytkownika —
+# wcześniejszy komentarz w tym miejscu zakładał identyczne V301A/V301B jak
+# Chłodnia 2, co było błędnym założeniem, nie faktem): fizycznie ma DWIE
+# RÓŻNE jednostki sprężarkowe, nie parę bliźniaczych sprężarek:
+# - Darpin: jeden bit PRACA + jedna wartość INT "poziom pracy sprężarki"
+#   (`secondary_metric`) — BRAK bitu awarii w PLC (`has_awaria: False`).
+# - Rhoss: jeden bit PRACA + DWA osobne bity awarii — "alarm sterowania" i
+#   "alarm pompy" (`awaria_labels`) — OR-owane w jeden status "fault" po
+#   stronie frontu, ale nadal dwie osobno nazwane metryki dla paska alarmów.
+# Chłodnia 3 ma tylko 1 pompę obiegową (nie 5/4 jak Chłodnia 1/2).
+# Mirror `src/lib/areas.ts::AREAS`.
 AREA_DEFINITIONS: list[AreaDefinition] = [
     _cooling_area(
         "chlodnia-1",
@@ -298,7 +369,7 @@ AREA_DEFINITIONS: list[AreaDefinition] = [
                 "Agregaty",
                 [{"id": "kwr125a", "label": "KWR125A"}, {"id": "kwr125b", "label": "KWR125B"}],
             ),
-            ("pompy", "Pompy obiegowe", _pump_group_spec()),
+            ("pompy", "Pompy obiegowe", _pump_group_spec(5)),
         ],
     ),
     _cooling_area(
@@ -311,7 +382,7 @@ AREA_DEFINITIONS: list[AreaDefinition] = [
                 "Sprężarki",
                 [{"id": "v301a", "label": "V301A"}, {"id": "v301b", "label": "V301B"}],
             ),
-            ("pompy", "Pompy obiegowe", _pump_group_spec()),
+            ("pompy", "Pompy obiegowe", _pump_group_spec(4)),
         ],
     ),
     _cooling_area(
@@ -322,9 +393,21 @@ AREA_DEFINITIONS: list[AreaDefinition] = [
             (
                 "sprezarki",
                 "Sprężarki",
-                [{"id": "v301a", "label": "V301A"}, {"id": "v301b", "label": "V301B"}],
+                [
+                    {
+                        "id": "darpin",
+                        "label": "Darpin",
+                        "secondary_metric": {"slug": "poziom", "label": "Poziom pracy", "unit": "", "decimals": 0},
+                        "has_awaria": False,
+                    },
+                    {
+                        "id": "rhoss",
+                        "label": "Rhoss",
+                        "awaria_labels": ["Alarm sterowania", "Alarm pompy"],
+                    },
+                ],
             ),
-            ("pompy", "Pompy obiegowe", _pump_group_spec()),
+            ("pompy", "Pompy obiegowe", _pump_group_spec(1)),
         ],
     ),
     _compressor_area(),

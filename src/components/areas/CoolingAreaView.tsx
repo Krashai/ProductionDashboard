@@ -77,6 +77,20 @@ export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
                     {group.devices.filter((d) => d.running).length} z {group.devices.length} pracuje
                   </span>
                 </div>
+                {group.note && (
+                  // Informacja kioskowa, NIE alarmowa (np. "sprężarki w
+                  // trakcie podłączania do systemu" — Chłodnia 2) — reużywa
+                  // języka wizualnego banera "Chłodnia wyłączona" (rounded,
+                  // border-slate-200/bg-slate-50/text-slate-500), ale
+                  // wizualnie podrzędna wobec nagłówka grupy, nie na całą
+                  // szerokość ekranu.
+                  <p
+                    data-testid={`device-group-note-${group.id}`}
+                    className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 2xl:px-3 2xl:py-1 text-[9px] 2xl:text-xs font-bold text-slate-500 normal-case tracking-normal"
+                  >
+                    {group.note}
+                  </p>
+                )}
                 <div className="flex flex-wrap justify-start gap-3 2xl:gap-6">
                   {group.devices.map((device) => (
                     <DeviceStatusTile
@@ -86,12 +100,14 @@ export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
                       running={device.running}
                       fault={device.fault}
                       offline={device.offline}
-                      frequencyHz={device.frequencyHz}
+                      secondaryValue={device.secondaryValue}
+                      secondaryUnit={device.secondaryUnit ?? ''}
+                      secondaryDecimals={device.secondaryDecimals ?? 1}
                       // Wyrównanie wysokości kafli TYLKO wewnątrz grup, które
-                      // faktycznie mają choć jedno urządzenie z regulacją
-                      // obrotów (np. "Pompy obiegowe": Pompa 1 ma Hz, 2-5 nie)
-                      // — patrz komentarz w DeviceStatusTile.tsx.
-                      reserveFrequencyRow={group.devices.some((d) => d.frequencyHz !== null)}
+                      // faktycznie mają choć jedno urządzenie z dodatkową
+                      // wartością liczbową (np. "Pompy obiegowe": Pompa 1 ma
+                      // Hz, 2-5 nie) — patrz komentarz w DeviceStatusTile.tsx.
+                      reserveSecondaryRow={group.devices.some((d) => d.secondaryValue !== null)}
                     />
                   ))}
                 </div>

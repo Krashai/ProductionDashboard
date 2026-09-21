@@ -14,9 +14,19 @@ export interface DeviceStatus {
   label: string;
   running: boolean;
   fault: boolean;
-  /** `null` gdy urządzenie nie ma metryki częstotliwości (nie ma VFD) —
-   * odróżnia to od "0 Hz zmierzone". */
-  frequencyHz: number | null;
+  /** `null` gdy urządzenie nie ma dodatkowej wartości liczbowej (np. Hz VFD
+   * pompy, "poziom pracy" sprężarki Darpin) — odróżnia to od "0 zmierzone".
+   * Zgeneralizowane z dawnego `frequencyHz` po dodaniu Chłodni 3 (Darpin ma
+   * bezjednostkową wartość "poziom pracy", nie częstotliwość). */
+  secondaryValue: number | null;
+  /** Jednostka `secondaryValue` (np. "Hz"), `null` gdy `secondaryValue` też
+   * `null`. Pusty string jest poprawną, jawną wartością (Darpin: "poziom
+   * pracy" nie ma jednostki) — to NIE to samo co `null`. */
+  secondaryUnit: string | null;
+  /** Miejsca po przecinku `secondaryValue` (np. Hz: 1, "poziom pracy" Darpin:
+   * 0 — to liczba całkowita, "2.0" wyglądałoby na kiosku jak pomiar, nie
+   * dyskretny poziom pracy). `null` gdy `secondaryValue` też `null`. */
+  secondaryDecimals: number | null;
   offline: boolean;
 }
 
@@ -24,6 +34,8 @@ export interface DeviceGroupStatus {
   id: string;
   label: string;
   devices: DeviceStatus[];
+  /** Przekazane 1:1 z `DeviceGroupDefinition.note` — patrz jej komentarz. */
+  note?: string;
 }
 
 function findMetric(metrics: Metric[], id: string | undefined): Metric | undefined {
@@ -31,9 +43,22 @@ function findMetric(metrics: Metric[], id: string | undefined): Metric | undefin
   return metrics.find((m) => m.id === id);
 }
 
+/** `device.metricIds.awaria` bywa nieobecne (Darpin, Chłodnia 3 — brak bitu
+ * awarii w PLC), pojedynczym id (większość urządzeń), albo tablicą id
+ * (Rhoss, Chłodnia 3 — "alarm sterowania" + "alarm pompy") — kafel ma jedną
+ * kropkę Awaria, więc wiele bitów OR-uje się w jeden `fault: boolean`
+ * (dowolny bit=1 → fault=true), mimo że każdy bit nadal istnieje osobno w
+ * `area.metrics`/pasku alarmów. */
+function resolveFault(metrics: Metric[], awaria: string | string[] | undefined): boolean {
+  if (!awaria) return false;
+  const ids = Array.isArray(awaria) ? awaria : [awaria];
+  return ids.some((id) => findMetric(metrics, id)?.value === 1);
+}
+
 /** PRACA/AWARIA płyną przez ten sam kanał co metryki analogowe — Tag typu
  * BOOL dekoduje się do liczby 0/1, więc "running"/"fault" to po prostu
- * `value === 1` na odpowiedniej metryce.
+ * `value === 1` na odpowiedniej metryce (`fault` przez `resolveFault` powyżej,
+ * bo `awaria` bywa zero/jeden/wiele bitów — patrz jej komentarz).
  *
  * Ten kontrakt jest EGZEKWOWANY, nie tylko opisany: `int(get_bool(...))` w
  * `backend/app/plc/decode.py` (funkcja `decode_tag_value`, gałąź BOOL), a
@@ -47,15 +72,16 @@ export function deriveDeviceStatus(
   areaOffline: boolean
 ): DeviceStatus {
   const pracaMetric = findMetric(metrics, device.metricIds.praca);
-  const awariaMetric = findMetric(metrics, device.metricIds.awaria);
-  const hzMetric = findMetric(metrics, device.metricIds.hz);
+  const secondaryMetric = findMetric(metrics, device.metricIds.secondary);
 
   return {
     id: device.id,
     label: device.label,
     running: pracaMetric?.value === 1,
-    fault: awariaMetric?.value === 1,
-    frequencyHz: hzMetric ? hzMetric.value : null,
+    fault: resolveFault(metrics, device.metricIds.awaria),
+    secondaryValue: secondaryMetric ? secondaryMetric.value : null,
+    secondaryUnit: secondaryMetric ? secondaryMetric.unit : null,
+    secondaryDecimals: secondaryMetric ? secondaryMetric.decimals : null,
     offline: areaOffline,
   };
 }
@@ -70,6 +96,7 @@ export function deriveDeviceGroupStatuses(
     id: group.id,
     label: group.label,
     devices: group.devices.map((device) => deriveDeviceStatus(device, metrics, areaOffline)),
+    note: group.note,
   }));
 }
 

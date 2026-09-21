@@ -14,15 +14,26 @@ interface DeviceStatusTileProps {
   running: boolean;
   fault: boolean;
   offline?: boolean;
-  /** `null` gdy urządzenie nie ma regulacji obrotów. */
-  frequencyHz?: number | null;
+  /** `null` gdy urządzenie nie ma dodatkowej wartości liczbowej (np. Hz VFD
+   * pompy, "poziom pracy" sprężarki Darpin). Zgeneralizowane z dawnego
+   * `frequencyHz` — ten wiersz nie jest już specyficzny dla Hz/VFD, patrz
+   * `secondaryUnit`. */
+  secondaryValue?: number | null;
+  /** Jednostka wyświetlana obok `secondaryValue` (np. "Hz"). Falsy (domyślny
+   * `''`) → BRAK jednostki na kaflu, bez pustej spacji/pustego elementu (np.
+   * "poziom pracy" sprężarki Darpin nie ma jednostki). */
+  secondaryUnit?: string;
+  /** Miejsca po przecinku `secondaryValue` (np. Hz: 1, "poziom pracy" Darpin:
+   * 0) — bez tego `Counter` domyślał się na sztywno 1 miejsca, więc dyskretny
+   * poziom pracy Darpin wyglądałby na kiosku jak pomiar analogowy ("2.0"). */
+  secondaryDecimals?: number;
   /** `true`, gdy JAKIEKOLWIEK urządzenie w tej samej grupie (rząd kafli) ma
-   * regulację obrotów — wtedy TEN kafel mimo `frequencyHz=null` i tak
-   * rezerwuje (niewidoczny) wiersz Hz, żeby zrównać wysokość z sąsiadem w
-   * rzędzie. Domyślnie `false`: grupy bez ŻADNEGO urządzenia z regulacją
+   * dodatkową wartość liczbową — wtedy TEN kafel mimo `secondaryValue=null` i
+   * tak rezerwuje (niewidoczny) wiersz, żeby zrównać wysokość z sąsiadem w
+   * rzędzie. Domyślnie `false`: grupy bez ŻADNEGO takiego urządzenia
    * (Sprężarki/Agregaty) nie dostają zbędnego pustego wiersza — patrz
    * komentarz przy komponencie. */
-  reserveFrequencyRow?: boolean;
+  reserveSecondaryRow?: boolean;
   /** 'lg' — kafel dla ekranów, na których w rzędzie stoją tylko DWA
    * urządzenia i layout daje im ok. połowy wysokości kiosku (Sprężarkownia).
    * Rośnie szerokość, kropki stanu i podpisy PRACA/AWARIA — sam większy,
@@ -83,17 +94,18 @@ const SIZE_STATE_TEXT_CLASSES: Record<DeviceTileSize, string> = {
  * (`size="lg"`). Anatomia nagłówek/treść/stopka (`justify-
  * between`, ten sam wzorzec co `OverviewMetricTile`/`OverviewTankTile` —
  * spójność w całej apce): etykieta przypięta do góry, status PRACA/AWARIA na
- * środku, wiersz Hz przypięty do dołu. Renderowany (niewidoczny —
- * `invisible`, nie warunkowy `null` — więc nadal rezerwuje wysokość) dla
- * urządzeń bez regulacji obrotów TYLKO gdy `reserveFrequencyRow` — czyli
- * gdy jakiś SĄSIAD w tej samej grupie ma regulację (np. grupa "Pompy
- * obiegowe": Pompa 1 ma Hz, Pompa 2-5 nie, ale muszą wyrównać wysokość do
- * Pompy 1, żeby rząd nie wyglądał niechlujnie/niesymetrycznie — zgłoszenie
- * użytkownika, sierpień 2026). Grupy bez ŻADNEGO urządzenia z regulacją
- * (Sprężarki, Agregaty) nie dostają wiersza wcale — nie ma z czym wyrównywać
- * wysokość, więc zbędny pusty wiersz tylko rozdmuchałby te kafle bez
- * potrzeby (i przy trzech sekcjach w jednej kolumnie kiosku bez scrolla to
- * realnie wypychało treść poza dół ekranu).
+ * środku, dodatkowy wiersz liczbowy (Hz VFD pompy, "poziom pracy" sprężarki
+ * Darpin — patrz `secondaryUnit`) przypięty do dołu. Renderowany (niewidoczny
+ * — `invisible`, nie warunkowy `null` — więc nadal rezerwuje wysokość) dla
+ * urządzeń bez tej wartości TYLKO gdy `reserveSecondaryRow` — czyli gdy jakiś
+ * SĄSIAD w tej samej grupie ją ma (np. grupa "Pompy obiegowe": Pompa 1 ma Hz,
+ * Pompa 2-5 nie, ale muszą wyrównać wysokość do Pompy 1, żeby rząd nie
+ * wyglądał niechlujnie/niesymetrycznie — zgłoszenie użytkownika, sierpień
+ * 2026). Grupy bez ŻADNEGO urządzenia z taką wartością (Sprężarki, Agregaty)
+ * nie dostają wiersza wcale — nie ma z czym wyrównywać wysokość, więc zbędny
+ * pusty wiersz tylko rozdmuchałby te kafle bez potrzeby (i przy trzech
+ * sekcjach w jednej kolumnie kiosku bez scrolla to realnie wypychało treść
+ * poza dół ekranu).
  *
  * Pasek boczny dostaje trzeci, pozytywny stan koloru — emerald przy PRACA,
  * nie tylko przy alarmie (decyzja użytkownika, `deviceAccentBarClasses`) —
@@ -106,13 +118,15 @@ export function DeviceStatusTile({
   running,
   fault,
   offline = false,
-  frequencyHz = null,
-  reserveFrequencyRow = false,
+  secondaryValue = null,
+  secondaryUnit = '',
+  secondaryDecimals = 1,
+  reserveSecondaryRow = false,
   size = 'default',
   testId,
   className,
 }: DeviceStatusTileProps) {
-  const showFrequencyRow = frequencyHz !== null || reserveFrequencyRow;
+  const showSecondaryRow = secondaryValue !== null || reserveSecondaryRow;
 
   return (
     <div
@@ -196,22 +210,28 @@ export function DeviceStatusTile({
         </div>
       </div>
 
-      {showFrequencyRow && (
+      {showSecondaryRow && (
         <div
-          data-testid="device-hz-row"
-          aria-hidden={frequencyHz === null ? true : undefined}
-          className={cn('relative z-10 flex items-baseline gap-1', frequencyHz === null && 'invisible')}
+          data-testid="device-secondary-row"
+          aria-hidden={secondaryValue === null ? true : undefined}
+          className={cn('relative z-10 flex items-baseline gap-1', secondaryValue === null && 'invisible')}
         >
           <span className="font-black font-mono text-slate-900 tracking-tighter tabular-nums leading-none text-sm 2xl:text-4xl">
             {offline ? (
               <span className="text-slate-500">—</span>
             ) : (
-              <Counter value={clampNonNegative(frequencyHz ?? 0)} decimals={1} />
+              <Counter value={clampNonNegative(secondaryValue ?? 0)} decimals={secondaryDecimals} />
             )}
           </span>
-          {/* BEZ `uppercase` — herc to "Hz", nie "HZ" (patrz analogiczny
-            * komentarz przy jednostce w `OverviewMetricTile.tsx`). */}
-          <span className="font-black text-slate-500 text-[9px] 2xl:text-lg">Hz</span>
+          {/* Renderowane WARUNKOWO (nie zawsze-obecny element z pustą
+            * treścią) — urządzenia bez jednostki (np. "poziom pracy"
+            * sprężarki Darpin, `secondaryUnit=''`) nie mają dostać osieroconej
+            * spacji/pustego <span>. BEZ `uppercase` na jednostce — herc to
+            * "Hz", nie "HZ" (patrz analogiczny komentarz przy jednostce w
+            * `OverviewMetricTile.tsx`). */}
+          {secondaryUnit && (
+            <span className="font-black text-slate-500 text-[9px] 2xl:text-lg">{secondaryUnit}</span>
+          )}
         </div>
       )}
     </div>
