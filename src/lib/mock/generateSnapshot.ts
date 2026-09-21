@@ -91,7 +91,13 @@ function nextBoolValue(
   random: () => number
 ): 0 | 1 {
   if (previousValue === undefined) {
-    const initialProbability = definition.id.endsWith('-awaria')
+    // Rhoss (Chłodnia 3, wrzesień 2026) ma DWA bity awarii, więc ich id-y
+    // kończą się `-awaria-1`/`-awaria-2`, nie gołym `-awaria` — dawny
+    // `.endsWith('-awaria')` je pomijał, więc oba bity startowały z
+    // PRACA_INITIAL_PROBABILITY (0.9) zamiast rzadkiego
+    // AWARIA_INITIAL_PROBABILITY (0.02): Rhoss "alarmował" niemal przy
+    // każdym starcie mocka. Dopasowuje też sam pojedynczy sufiks `-awaria`.
+    const initialProbability = /-awaria(-\d+)?$/.test(definition.id)
       ? AWARIA_INITIAL_PROBABILITY
       : PRACA_INITIAL_PROBABILITY;
     return random() < initialProbability ? 1 : 0;

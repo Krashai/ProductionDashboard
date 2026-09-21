@@ -270,6 +270,25 @@ describe('generateSnapshot', () => {
       const later = snapshot.metrics.find((m) => m.id === pracaId)!.value;
       expect(later).toBe(first);
     });
+
+    // Rhoss (Chłodnia 3): id-y wielobitowej awarii kończą się `-awaria-1`/
+    // `-awaria-2`, nie gołym `-awaria` — regresja na bug, gdzie taki sufiks
+    // mylnie startował z PRACA_INITIAL_PROBABILITY (0.9) zamiast rzadkiego
+    // AWARIA_INITIAL_PROBABILITY (0.02).
+    test('wielobitowa awaria (Rhoss, id kończące się -awaria-N) startuje z rzadkim prawdopodobieństwem, tak jak pojedynczy bit awarii', () => {
+      const chlodnia3 = AREAS.find((a) => a.id === 'chlodnia-3')!;
+      // rng=0.5: < PRACA_INITIAL_PROBABILITY(0.9) → 1, ale NIE <
+      // AWARIA_INITIAL_PROBABILITY(0.02) → 0. Odróżnia poprawną klasyfikację
+      // od bugu bez podglądania stałych mocka.
+      const snapshot = generateSnapshot(chlodnia3, { random: constantRandom(0.5) });
+      const rhossAwaria1 = snapshot.metrics.find((m) => m.id === 'chlodnia-3-rhoss-awaria-1')!;
+      const rhossAwaria2 = snapshot.metrics.find((m) => m.id === 'chlodnia-3-rhoss-awaria-2')!;
+      expect(rhossAwaria1.value).toBe(0);
+      expect(rhossAwaria2.value).toBe(0);
+
+      const rhossPraca = snapshot.metrics.find((m) => m.id === 'chlodnia-3-rhoss-praca')!;
+      expect(rhossPraca.value).toBe(1);
+    });
   });
 
   test('metryki sprężarkowni (obie sekcje: Magazyn Aluminium / Magazyn Bębnów) generowane są niezależnie od siebie', () => {
