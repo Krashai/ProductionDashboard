@@ -44,7 +44,14 @@ describe('RootView — routing wg Concept.md §6/§6a (decyzje #20/#25/#26)', ()
     expect(screen.queryByRole('heading', { name: 'Przegląd zakładu' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /wstrzymaj rotację/i })).toBeInTheDocument();
     for (const area of AREAS) {
-      expect(screen.getByRole('button', { name: area.name })).toBeInTheDocument();
+      // `name` dopasowuje prefiksem, nie dokładnie: przycisk obszaru z aktywnym
+      // alarmem ma doklejony sr-only fragment "alarm aktywny" (Wallboard.tsx,
+      // wskaźnik alarmu w navbarze) — mockowe dane losują alarmy realnym
+      // Math.random(), więc dokładne dopasowanie było źródłem sporadycznej
+      // "flaky" awarii tego testu zależnej od losowania.
+      expect(
+        screen.getByRole('button', { name: (accessibleName) => accessibleName.startsWith(area.name) })
+      ).toBeInTheDocument();
     }
   });
 

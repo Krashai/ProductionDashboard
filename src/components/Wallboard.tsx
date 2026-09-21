@@ -9,7 +9,7 @@ import { useCarousel } from '@/hooks/useCarousel';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import { AREAS } from '@/lib/areas';
 import { AreaView } from '@/components/AreaView';
-import { AlarmBar } from '@/components/AlarmBar';
+import { AlarmBar, collectAlarms } from '@/components/AlarmBar';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { StatusBadge } from '@/components/StatusBadge';
 
@@ -26,6 +26,17 @@ const AREA_TITLE_CLASSES =
 // barw (jedyny kolor niosący znaczenie w tym UI to rose przy alarmie).
 const FOCUS_RING_CLASSES =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2';
+
+// Kropka alarmu w navbarze — ten sam duet kolor+animacja co
+// `device-fault-dot` w DeviceStatusTile.tsx (rose-500 + animate-alarm-flash),
+// żeby "coś tu wymaga uwagi" znaczyło to samo wizualnie w całej aplikacji.
+// Rozmiar dobrany per kontekst: w pasku "Pozostałe obszary" tekst ma
+// 10-11 px, więc kropka 6 px nie zdominuje etykiety; w tytule obszaru
+// (3xl/5xl) 6 px zginąłby z dystansu kioskowego, stąd większy wariant.
+const NAV_ALARM_DOT_CLASSES =
+  'shrink-0 w-1.5 h-1.5 rounded-full bg-rose-500 animate-alarm-flash motion-reduce:animate-none';
+const TITLE_ALARM_DOT_CLASSES =
+  'shrink-0 w-2.5 h-2.5 2xl:w-3.5 2xl:h-3.5 rounded-full bg-rose-500 animate-alarm-flash motion-reduce:animate-none';
 
 /**
  * Root kiosku — port nagłówka karuzeli z MainDashboard.tsx, bez linków
@@ -60,6 +71,15 @@ export function Wallboard() {
   const activeSnapshot = useMemo(
     () => areas.find((area) => area.id === activeAreaId),
     [areas, activeAreaId]
+  );
+
+  // Ten sam `collectAlarms`, co zasila AlarmBar u dołu ekranu — świadomie NIE
+  // licząc alarmów lokalnie drugi raz, żeby kropka w navbarze nigdy nie
+  // mogła powiedzieć co innego niż pasek na dole (jedno źródło prawdy o tym,
+  // co jest "alarmem"; wycisza je też tak samo, np. dla wyłączonej chłodni).
+  const alarmedAreaIds = useMemo(
+    () => new Set(collectAlarms(areas).map((alarm) => alarm.areaId)),
+    [areas]
   );
 
   // Jedno źródło prawdy dla tytułu widoku — zarówno `document.title` (efekt
@@ -165,11 +185,24 @@ export function Wallboard() {
                   onClick={() => carousel.selectIndex(carousel.currentIndex)}
                   className={cn(
                     AREA_TITLE_CLASSES,
-                    'block rounded-lg active:scale-95 transition-transform',
+                    'inline-flex items-center gap-2 2xl:gap-3 rounded-lg active:scale-95 transition-transform',
                     FOCUS_RING_CLASSES
                   )}
                 >
                   {activeDefinition?.name}
+                  {/* Operator patrzący akurat na TEN obszar musi widzieć alarm
+                   * bez czekania na obrót karuzeli do innego widoku — bez tej
+                   * kropki jedynym sygnałem byłby AlarmBar na dole ekranu. */}
+                  {activeAreaId && alarmedAreaIds.has(activeAreaId) && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        data-testid="active-area-alarm-indicator"
+                        className={TITLE_ALARM_DOT_CLASSES}
+                      />
+                      <span className="sr-only">alarm aktywny</span>
+                    </>
+                  )}
                 </button>
               ) : (
                 areaTitle
@@ -199,12 +232,28 @@ export function Wallboard() {
                     onClick={() => carousel.selectIndex(idx)}
                     className={cn(
                       'px-2.5 py-1 2xl:px-4 2xl:py-2 rounded-lg whitespace-nowrap transition-all active:scale-95',
+                      'inline-flex items-center gap-1',
                       'text-[10px] 2xl:text-[11px] font-black uppercase tracking-widest',
                       'text-slate-600 hover:text-slate-900 hover:bg-slate-50',
                       FOCUS_RING_CLASSES
                     )}
                   >
                     {area.name}
+                    {/* Bez tej kropki jedynym sposobem, żeby operator odkrył
+                     * alarm w OBSZARZE, na który akurat nie patrzy, było
+                     * przeczytanie prefiksu nazwy obszaru na chipie w
+                     * AlarmBar na dole ekranu — łatwe do przeoczenia
+                     * z dystansu kioskowego. */}
+                    {alarmedAreaIds.has(area.id) && (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          data-testid={`nav-alarm-indicator-${area.id}`}
+                          className={NAV_ALARM_DOT_CLASSES}
+                        />
+                        <span className="sr-only">alarm aktywny</span>
+                      </>
+                    )}
                   </button>
                 )
               )}

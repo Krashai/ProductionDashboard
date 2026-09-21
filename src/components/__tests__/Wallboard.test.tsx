@@ -29,8 +29,14 @@ function setSearchParams(query: string) {
   >);
 }
 
+// `random: () => 0.5` czyni bazowy snapshot deterministyczny: żadna metryka
+// analogowa nie trafia w ALARM_PROBABILITY (0.05), a PRACA pomp obiegowych
+// wychodzi "pracuje" (próg 0.9) — bez tego losowy `Math.random()` z
+// `generateSnapshot` sprawiałby, że nowy wskaźnik alarmu w navbarze migałby
+// między uruchomieniami testów niezależnie od tego, co konkretny test chce
+// sprawdzić.
 function buildDefaultAreas(): AreaSnapshot[] {
-  return AREAS.map((area) => generateSnapshot(area));
+  return AREAS.map((area) => generateSnapshot(area, { random: () => 0.5 }));
 }
 
 // Nadpisuje isOnline pojedynczego obszaru w domyślnym zestawie snapshotów —
@@ -38,6 +44,25 @@ function buildDefaultAreas(): AreaSnapshot[] {
 function setAreaOnlineState(areaId: string, isOnline: boolean) {
   mockedUseAreasData.mockReturnValue({
     areas: buildDefaultAreas().map((area) => (area.id === areaId ? { ...area, isOnline } : area)),
+    status: 'live',
+    lastEventAt: new Date(),
+  });
+}
+
+// Nadpisuje flagę `alarm` jednej metryki jednego obszaru na deterministycznej
+// bazie z `buildDefaultAreas` — pozwala przetestować wskaźnik alarmu w
+// navbarze bez poddawania się losowości `generateSnapshot`. Reszta metryk
+// (i reszta obszarów) zostaje bez zmian.
+function setAreaAlarmState(areaId: string, metricId: string, alarm: boolean) {
+  mockedUseAreasData.mockReturnValue({
+    areas: buildDefaultAreas().map((area) =>
+      area.id === areaId
+        ? {
+            ...area,
+            metrics: area.metrics.map((metric) => (metric.id === metricId ? { ...metric, alarm } : metric)),
+          }
+        : area
+    ),
     status: 'live',
     lastEventAt: new Date(),
   });
@@ -279,6 +304,66 @@ describe('Wallboard — aktywna zakładka karuzeli JEST tytułem', () => {
     fireEvent.click(screen.getByRole('button', { name: AREAS[4].name }));
     expect(screen.getByText('5/5')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: AREAS[4].name })).toBeInTheDocument();
+  });
+});
+
+describe('Wallboard — wskaźnik alarmu w navbarze (collectAlarms, decyzja #15)', () => {
+  test('pigułka INNEGO obszaru pokazuje kropkę alarmu, gdy ten obszar ma aktywny alarm', () => {
+    setAreaAlarmState('chlodnia-2', 'chlodnia-2-temp', true);
+    render(<Wallboard />);
+    expect(screen.getByTestId('nav-alarm-indicator-chlodnia-2')).toBeInTheDocument();
+  });
+
+  test('pigułka obszaru bez aktywnego alarmu nie pokazuje kropki', () => {
+    render(<Wallboard />);
+    expect(screen.queryByTestId('nav-alarm-indicator-chlodnia-2')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nav-alarm-indicator-chlodnia-3')).not.toBeInTheDocument();
+  });
+
+  test('tytuł AKTYWNEGO obszaru pokazuje kropkę alarmu, gdy TEN obszar ma aktywny alarm', () => {
+    setAreaAlarmState(AREAS[0].id, `${AREAS[0].id}-temp`, true);
+    render(<Wallboard />);
+    expect(screen.getByTestId('active-area-alarm-indicator')).toBeInTheDocument();
+  });
+
+  test('tytuł aktywnego obszaru nie pokazuje kropki, gdy ten obszar nie ma alarmu', () => {
+    render(<Wallboard />);
+    expect(screen.queryByTestId('active-area-alarm-indicator')).not.toBeInTheDocument();
+  });
+
+  test('kropka jest czysto wizualna (aria-hidden) i ma osobny sr-only opis "alarm aktywny"', () => {
+    setAreaAlarmState('chlodnia-2', 'chlodnia-2-temp', true);
+    render(<Wallboard />);
+
+    const dot = screen.getByTestId('nav-alarm-indicator-chlodnia-2');
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+
+    // Nazwa dostępna pigułki nadal zawiera samą nazwę obszaru — sr-only opis
+    // alarmu jest DODATKOWYM, osobnym elementem, a nie mutacją widocznego tekstu.
+    const button = screen.getByRole('button', { name: /Chłodnia 2\s*alarm aktywny/i });
+    expect(button).toBeInTheDocument();
+    expect(button.textContent).toContain('Chłodnia 2');
+  });
+
+  test('wyłączona chłodnia (pompy nie pracują) wycisza alarm temperatury tak samo jak AlarmBar', () => {
+    // `coolingSuppressedAlarmMetricIds` (wspólne z AlarmBar) ignoruje alarm
+    // temperatury/ciśnienia, gdy żadna pompa obiegowa nie pracuje — kropka w
+    // navbarze musi się z tym zgadzać, bo korzysta z tej samej `collectAlarms`.
+    const areas = buildDefaultAreas().map((area) => {
+      if (area.id !== 'chlodnia-2') return area;
+      return {
+        ...area,
+        metrics: area.metrics.map((metric) => {
+          if (metric.id === 'chlodnia-2-temp') return { ...metric, alarm: true };
+          if (metric.id.endsWith('-praca')) return { ...metric, value: 0 };
+          return metric;
+        }),
+      };
+    });
+    mockedUseAreasData.mockReturnValue({ areas, status: 'live', lastEventAt: new Date() });
+
+    render(<Wallboard />);
+    expect(screen.queryByTestId('nav-alarm-indicator-chlodnia-2')).not.toBeInTheDocument();
   });
 });
 
