@@ -1,7 +1,30 @@
-import { describe, expect, test } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { AlarmBar, collectAlarms } from '@/components/AlarmBar';
 import type { AreaSnapshot, Metric } from '@/lib/types';
+
+// jsdom nie liczy prawdziwego layoutu — `scrollWidth`/`clientWidth` są zawsze
+// 0, więc żeby przetestować detekcję przepełnienia trzeba je podstawić
+// ręcznie na prototypie (wszystkie elementy w danym teście "widzą" te same
+// wymiary, co wystarcza — komponent porównuje tylko dwa konkretne elementy).
+function mockLayout({ trackWidth, viewportWidth }: { trackWidth: number; viewportWidth: number }) {
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(trackWidth);
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(viewportWidth);
+}
+
+// jsdom nie implementuje `matchMedia` w ogóle (zweryfikowane ręcznie) —
+// komponent ma na to strażniczkę (traktuje brak API jak "ruch
+// niezredukowany"), ale test `prefers-reduced-motion` musi je podstawić.
+function mockPrefersReducedMotion(matches: boolean) {
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches,
+    media: query,
+    addEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    dispatchEvent: vi.fn(),
+  }));
+}
 
 function metric(overrides: Partial<Metric>): Metric {
   return {
@@ -27,6 +50,12 @@ function area(overrides: Partial<AreaSnapshot>): AreaSnapshot {
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  // @ts-expect-error -- jsdom nie ma tej właściwości domyślnie, przywracamy brak
+  delete window.matchMedia;
+});
 
 describe('collectAlarms (agregacja alarmów)', () => {
   test('brak alarmów w żadnym obszarze => pusta lista', () => {
@@ -136,6 +165,77 @@ describe('AlarmBar', () => {
     const { container } = render(<AlarmBar areas={[]} />);
     const root = container.querySelector('[data-testid="alarm-bar"]');
     expect(root).toHaveClass('shrink-0');
+  });
+});
+
+// Konwersja na jednowierszowy ticker (wrzesień 2026): `flex-wrap` przy dużej
+// liczbie jednoczesnych alarmów rósł bez ograniczeń i zjadał miejsce głównej
+// treści kiosku (brak scrolla na `h-screen overflow-hidden`). Poniżej trzy
+// stany layoutu, rozróżniane WYŁĄCZNIE przez zmierzone `scrollWidth`/
+// `clientWidth` (podstawione ręcznie — jsdom ich nie liczy) i `matchMedia`.
+describe('AlarmBar — pasek jednowierszowy (ticker) przy przepełnieniu', () => {
+  test('chipy mieszczą się w jednym wierszu => bez duplikatu toru i bez animacji (jak dziś)', async () => {
+    mockLayout({ trackWidth: 200, viewportWidth: 2000 });
+    const areas = [
+      area({
+        id: 'chlodnia-2',
+        name: 'Chłodnia 2',
+        metrics: [metric({ id: 'p', label: 'Ciśnienie wody na halę', alarm: true })],
+      }),
+    ];
+
+    render(<AlarmBar areas={areas} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('alarm-marquee-track')).not.toHaveClass('animate-alarm-marquee');
+    });
+    expect(screen.queryByTestId('alarm-marquee-track-duplicate')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('alarm-chip-chlodnia-2-p')).toHaveLength(1);
+    expect(screen.getByTestId('alarm-marquee-viewport')).toHaveClass('overflow-hidden');
+  });
+
+  test('przepełnienie + ruch niezredukowany => zdublowany tor animowany (ticker)', async () => {
+    mockLayout({ trackWidth: 5000, viewportWidth: 1000 });
+    mockPrefersReducedMotion(false);
+    const areas = [
+      area({
+        id: 'chlodnia-2',
+        name: 'Chłodnia 2',
+        metrics: [metric({ id: 'p', label: 'Ciśnienie wody na halę', alarm: true })],
+      }),
+    ];
+
+    render(<AlarmBar areas={areas} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('alarm-marquee-track')).toHaveClass('animate-alarm-marquee');
+    });
+    expect(screen.getByTestId('alarm-marquee-track-duplicate')).toBeInTheDocument();
+    // Stabilny, niekruchy sygnał: lista chipów pojawia się dwukrotnie (oryginał
+    // + kopia do pętli), a nie konkretna wyliczona wartość animation-duration.
+    expect(screen.getAllByTestId('alarm-chip-chlodnia-2-p')).toHaveLength(2);
+    expect(screen.getByTestId('alarm-marquee-viewport')).toHaveClass('overflow-hidden');
+  });
+
+  test('przepełnienie + prefers-reduced-motion => zwykły scroll, bez duplikatu i bez animacji', async () => {
+    mockLayout({ trackWidth: 5000, viewportWidth: 1000 });
+    mockPrefersReducedMotion(true);
+    const areas = [
+      area({
+        id: 'chlodnia-2',
+        name: 'Chłodnia 2',
+        metrics: [metric({ id: 'p', label: 'Ciśnienie wody na halę', alarm: true })],
+      }),
+    ];
+
+    render(<AlarmBar areas={areas} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('alarm-marquee-viewport')).toHaveClass('overflow-x-auto');
+    });
+    expect(screen.getByTestId('alarm-marquee-track')).not.toHaveClass('animate-alarm-marquee');
+    expect(screen.queryByTestId('alarm-marquee-track-duplicate')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('alarm-chip-chlodnia-2-p')).toHaveLength(1);
   });
 });
 

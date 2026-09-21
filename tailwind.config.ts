@@ -31,6 +31,10 @@ const config: Config = {
         // Cały kafel ma teraz mrugać na czerwono. 1.2s cykl ≈ 0.83Hz, bezpiecznie
         // poniżej progu ryzyka napadów WCAG 2.3.1 (3Hz) — nie przyspieszać.
         'alarm-flash': 'alarm-flash 1.2s ease-in-out infinite',
+        // Czas trwania nadpisywany inline'em (`style.animationDuration`) przez
+        // AlarmBar zależnie od zmierzonej szerokości treści — 20s to tylko
+        // wartość domyślna/fallback, gdy JS jeszcze nie zdążył zmierzyć layoutu.
+        'alarm-marquee': 'alarm-marquee 20s linear infinite',
       },
       keyframes: {
         'pulse-subtle': {
@@ -44,6 +48,14 @@ const config: Config = {
         'alarm-flash': {
           '0%, 100%': { backgroundColor: 'rgb(255 255 255)', borderColor: 'rgba(225, 29, 72, 0.35)' },
           '50%': { backgroundColor: 'rgba(244, 63, 94, 0.15)', borderColor: 'rgba(225, 29, 72, 0.9)' },
+        },
+        // Ścieżka jest zdublowana przez AlarmBar (dwie identyczne kopie listy
+        // chipów obok siebie) — przejazd o dokładnie -50% szerokości to
+        // dokładnie jedna kopia, więc pętla jest bezszwowa (koniec drugiej
+        // kopii styka się z początkiem pierwszej bez skoku/miganie).
+        'alarm-marquee': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
         },
       }
     },

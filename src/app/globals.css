@@ -42,6 +42,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-subtle,
   .animate-alarm-flash,
+  .animate-alarm-marquee,
   .animate-pulse,
   .animate-spin,
   .animate-bounce-slow {
