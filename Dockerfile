@@ -5,9 +5,10 @@
 # Prisma (this app has no direct DB access — it talks to the PLC backend
 # over WebSocket, see src/lib/backend/wsAdapter.ts).
 #
-# NEXT_PUBLIC_* vars are inlined into the JS bundle by `next build` (see
-# src/lib/backend/config.ts) — they must be passed as build ARGs, not just
-# runtime environment, or the browser bundle will fall back to defaults.
+# NEXT_PUBLIC_* vars and BASE_PATH are inlined into the JS bundle, and
+# BACKEND_INTERNAL_URL into the routes manifest, by `next build` (see
+# next.config.mjs) — they must be passed as build ARGs, not just runtime
+# environment, or the build falls back to defaults.
 
 FROM node:20-alpine AS deps
 WORKDIR /app
@@ -19,10 +20,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_WS_URL
+ARG BACKEND_INTERNAL_URL
 ARG NEXT_PUBLIC_DATA_SOURCE
 ARG BASE_PATH
-ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
 ENV NEXT_PUBLIC_DATA_SOURCE=${NEXT_PUBLIC_DATA_SOURCE}
 ENV BASE_PATH=${BASE_PATH}
 RUN npm run build

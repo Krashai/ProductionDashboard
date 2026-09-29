@@ -77,7 +77,6 @@ function offlineSnapshots(): AreaSnapshot[] {
 export function createWebSocketAdapter(
   opts: CreateWebSocketAdapterOptions = {}
 ): AreasDataAdapter {
-  const url = opts.url ?? resolveWsUrl();
   const socketFactory = opts.socketFactory ?? defaultSocketFactory;
   const historyLength = opts.historyLength;
   const staleTimeoutMs = opts.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS;
@@ -145,7 +144,10 @@ export function createWebSocketAdapter(
 
       function connect() {
         if (isTornDown) return;
-        socket = socketFactory(url);
+        // Resolved per connect, not at creation: the default adapter is built
+        // during render, which also runs server-side where there is no
+        // window.location to derive a same-origin address from.
+        socket = socketFactory(opts.url ?? resolveWsUrl());
         scheduleStaleWatchdog();
 
         socket.onmessage = (event) => {
