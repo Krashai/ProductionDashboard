@@ -196,6 +196,8 @@ describe('CoolingAreaView', () => {
       const metrics = [...baseMetrics(), ...runningPumpMetrics()];
       const v101Awaria = metrics.find((m) => m.id === 'chlodnia-1-v101-awaria')!;
       v101Awaria.value = 1;
+      v101Awaria.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
+    v101Awaria.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
       const withFault = snapshot({ metrics });
       const { container } = render(<CoolingAreaView area={withFault} definition={definitionWithDevices} />);
       const tile = container.querySelector('[data-testid="device-tile-v101"]')!;
@@ -244,6 +246,8 @@ describe('CoolingAreaView', () => {
       const metrics = [...baseMetrics(), ...runningPumpMetrics()];
       const v101Awaria = metrics.find((m) => m.id === 'chlodnia-1-v101-awaria')!;
       v101Awaria.value = 1;
+      v101Awaria.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
+    v101Awaria.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
       const withFault = snapshot({ metrics });
       const { getByTestId } = render(<CoolingAreaView area={withFault} definition={definitionWithDevices} />);
       const badge = getByTestId('device-group-summary-sprezarki');

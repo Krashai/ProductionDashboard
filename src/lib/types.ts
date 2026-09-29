@@ -8,6 +8,18 @@ export interface Metric {
   decimals: number;
   history: number[];
   alarm: boolean;
+  /** Dlaczego jest alarm (np. "Powyżej maksimum (9.0)", opis bitu awarii) —
+   * z `alarm_description` backendu. Opcjonalne: mock i starsze fixture'y go
+   * nie mają, a brak opisu to zwykły chip z samą nazwą metryki. */
+  alarmDescription?: string | null;
+}
+
+/** Alarm tagu spoza katalogu metryk (np. bit słowa awarii) — nie ma karty
+ * na wallboardzie, istnieje wyłącznie na pasku alarmów. */
+export interface ExtraAlarm {
+  metricId: string;
+  label: string;
+  description: string | null;
 }
 
 export interface AreaSnapshot {
@@ -17,6 +29,7 @@ export interface AreaSnapshot {
   metrics: Metric[];
   lastSeenAt: string | null;
   isOnline: boolean;
+  extraAlarms?: ExtraAlarm[];
 }
 
 export interface AlarmState {
@@ -24,4 +37,5 @@ export interface AlarmState {
   areaName: string;
   metricId: string;
   metricLabel: string;
+  description: string | null;
 }

@@ -32,14 +32,25 @@ export function collectAlarms(areas: AreaSnapshot[]): AlarmState[] {
   return areas.flatMap((area) => {
     const definition = AREAS.find((a) => a.id === area.id);
     const suppressed = definition ? coolingSuppressedAlarmMetricIds(definition, area.metrics) : new Set<string>();
-    return area.metrics
+    const metricAlarms = area.metrics
       .filter((metric) => metric.alarm && !suppressed.has(metric.id))
       .map((metric) => ({
         areaId: area.id,
         areaName: area.name,
         metricId: metric.id,
         metricLabel: metric.label,
+        description: metric.alarmDescription ?? null,
       }));
+    // Tagi spoza katalogu (słowa awarii) nie mają karty — pasek to jedyne
+    // miejsce, gdzie operator je zobaczy.
+    const extraAlarms = (area.extraAlarms ?? []).map((extra) => ({
+      areaId: area.id,
+      areaName: area.name,
+      metricId: extra.metricId,
+      metricLabel: extra.label,
+      description: extra.description,
+    }));
+    return [...metricAlarms, ...extraAlarms];
   });
 }
 
@@ -50,6 +61,7 @@ function AlarmChip({ alarm }: { alarm: AlarmState }) {
       className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest bg-rose-50 border-rose-200 text-rose-800 animate-pulse-subtle motion-reduce:animate-none whitespace-nowrap"
     >
       {alarm.areaName} — {alarm.metricLabel}
+      {alarm.description && <span className="font-bold normal-case tracking-normal">— {alarm.description}</span>}
     </span>
   );
 }

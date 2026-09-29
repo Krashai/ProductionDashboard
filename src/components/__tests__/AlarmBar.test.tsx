@@ -72,7 +72,7 @@ describe('collectAlarms (agregacja alarmów)', () => {
       }),
     ];
     expect(collectAlarms(areas)).toEqual([
-      { areaId: 'chlodnia-2', areaName: 'Chłodnia 2', metricId: 'p', metricLabel: 'Ciśnienie wody na halę' },
+      { areaId: 'chlodnia-2', areaName: 'Chłodnia 2', metricId: 'p', metricLabel: 'Ciśnienie wody na halę', description: null },
     ]);
   });
 

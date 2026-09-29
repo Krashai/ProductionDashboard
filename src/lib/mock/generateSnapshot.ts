@@ -16,6 +16,8 @@ const WALK_STEP_RATIO = 0.08;
 const BOOL_FLIP_PROBABILITY = 0.03;
 const PRACA_INITIAL_PROBABILITY = 0.9;
 const AWARIA_INITIAL_PROBABILITY = 0.02;
+/** `-awaria` albo `-awaria-N` (Rhoss ma dwa bity awarii). */
+const AWARIA_ID_PATTERN = /-awaria(-\d+)?$/;
 
 export interface GenerateSnapshotOptions {
   previous?: AreaSnapshot;
@@ -58,14 +60,16 @@ function generateMetric(
 ): Metric {
   // Bool (PRACA/AWARIA urządzeń, unit="") to dyskretny 0/1, nie ciągła
   // wartość — osobna ścieżka generacji, żadnego błądzenia losowego po
-  // zakresie. `alarm` zostaje zawsze false: AWARIA sygnalizuje się przez
-  // wartość samej metryki (patrz `src/lib/device-status.ts`), nie przez
-  // ten ogólny flag — inaczej losowy alarm=true na metryce "V101 — Praca"
-  // trafiłby bez sensu do globalnego paska alarmów (AlarmBar).
+  // zakresie. `alarm` odwzorowuje domyślną regułę backendu: sygnał AWARIA
+  // alarmuje przy 1 (tak jak `_IMPLICIT_AWARIA_RULE` w
+  // backend/app/plc/aggregator.py), PRACA nigdy — losowy alarm na "V101 —
+  // Praca" trafiłby bez sensu na pasek alarmów. Mock musi się tu zgadzać z
+  // backendem: kafel urządzenia czyta awarię z flagi `alarm`.
   if (definition.unit === '') {
     const value = nextBoolValue(definition, previous?.value, random);
     const history = [...(previous?.history ?? []), value].slice(-historyLength);
-    return { id: definition.id, label: definition.label, value, unit: definition.unit, decimals: definition.decimals, history, alarm: false };
+    const alarm = AWARIA_ID_PATTERN.test(definition.id) && value === 1;
+    return { id: definition.id, label: definition.label, value, unit: definition.unit, decimals: definition.decimals, history, alarm };
   }
 
   const range = resolveRange(definition, area);
@@ -97,7 +101,7 @@ function nextBoolValue(
     // PRACA_INITIAL_PROBABILITY (0.9) zamiast rzadkiego
     // AWARIA_INITIAL_PROBABILITY (0.02): Rhoss "alarmował" niemal przy
     // każdym starcie mocka. Dopasowuje też sam pojedynczy sufiks `-awaria`.
-    const initialProbability = /-awaria(-\d+)?$/.test(definition.id)
+    const initialProbability = AWARIA_ID_PATTERN.test(definition.id)
       ? AWARIA_INITIAL_PROBABILITY
       : PRACA_INITIAL_PROBABILITY;
     return random() < initialProbability ? 1 : 0;

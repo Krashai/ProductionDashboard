@@ -240,11 +240,12 @@ describe('generateSnapshot', () => {
       }
     });
 
-    test('metryki bool nigdy nie mają alarm=true (AWARIA sygnalizuje się przez wartość, nie ten flag)', () => {
+    test('metryki bool: PRACA nigdy nie alarmuje, AWARIA alarmuje dokładnie przy value=1 (jak domyślna reguła backendu)', () => {
       for (let i = 0; i < 50; i++) {
         const snapshot = generateSnapshot(chlodnia1, { random: Math.random });
         for (const metric of snapshot.metrics.filter((m) => m.unit === '')) {
-          expect(metric.alarm).toBe(false);
+          const isAwaria = /-awaria(-\d+)?$/.test(metric.id);
+          expect(metric.alarm).toBe(isAwaria && metric.value === 1);
         }
       }
     });

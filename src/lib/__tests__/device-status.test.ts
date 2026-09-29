@@ -68,7 +68,7 @@ describe('deriveDeviceStatus', () => {
   test('praca=0, awaria=1 → running=false, fault=true (urządzenie stoi w awarii)', () => {
     const metrics = [
       metric({ id: 'chlodnia-1-v101-praca', value: 0 }),
-      metric({ id: 'chlodnia-1-v101-awaria', value: 1 }),
+      metric({ id: 'chlodnia-1-v101-awaria', value: 1, alarm: true }),
     ];
     const status = deriveDeviceStatus(v101, metrics, false);
     expect(status.running).toBe(false);
@@ -124,7 +124,7 @@ describe('deriveDeviceStatus', () => {
   });
 
   // Rhoss: dwa osobne bity awarii OR-owane w jeden `fault`.
-  test('Rhoss (metricIds.awaria to tablica): fault=true, gdy DOWOLNY z dwóch bitów=1', () => {
+  test('Rhoss (metricIds.awaria to tablica): fault=true, gdy DOWOLNY z dwóch bitów jest w alarmie', () => {
     const bothZero = [
       metric({ id: 'chlodnia-3-rhoss-praca', value: 1 }),
       metric({ id: 'chlodnia-3-rhoss-awaria-1', value: 0 }),
@@ -134,7 +134,7 @@ describe('deriveDeviceStatus', () => {
 
     const firstBitSet = [
       metric({ id: 'chlodnia-3-rhoss-praca', value: 1 }),
-      metric({ id: 'chlodnia-3-rhoss-awaria-1', value: 1 }),
+      metric({ id: 'chlodnia-3-rhoss-awaria-1', value: 1, alarm: true }),
       metric({ id: 'chlodnia-3-rhoss-awaria-2', value: 0 }),
     ];
     expect(deriveDeviceStatus(rhoss, firstBitSet, false).fault).toBe(true);
@@ -142,7 +142,7 @@ describe('deriveDeviceStatus', () => {
     const secondBitSet = [
       metric({ id: 'chlodnia-3-rhoss-praca', value: 1 }),
       metric({ id: 'chlodnia-3-rhoss-awaria-1', value: 0 }),
-      metric({ id: 'chlodnia-3-rhoss-awaria-2', value: 1 }),
+      metric({ id: 'chlodnia-3-rhoss-awaria-2', value: 1, alarm: true }),
     ];
     expect(deriveDeviceStatus(rhoss, secondBitSet, false).fault).toBe(true);
   });

@@ -142,6 +142,7 @@ describe('CompressorAreaView', () => {
     const metrics = [...baseAnalogMetrics(), ...runningDeviceMetrics()];
     const fault = metrics.find((m) => m.id === 'sprezarkownia-bebny-1-awaria')!;
     fault.value = 1;
+    fault.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
     const { container } = render(<CompressorAreaView area={snapshot({ metrics })} definition={definition} />);
     const tile = container.querySelector('[data-testid="device-tile-bebny-1"]')!;
     expect(tile.querySelector('[data-testid="device-fault-dot"]')?.className).toMatch(/animate-alarm-flash/);
@@ -206,6 +207,7 @@ describe('CompressorAreaView', () => {
     const metrics = [...baseAnalogMetrics(), ...runningDeviceMetrics()];
     const fault = metrics.find((m) => m.id === 'sprezarkownia-bebny-1-awaria')!;
     fault.value = 1;
+    fault.alarm = true; // backend: domyślna reguła AWARII (alarm przy TRUE)
     const { container } = render(<CompressorAreaView area={snapshot({ metrics })} definition={definition} />);
     const badge = container.querySelector('[data-testid="compressor-group-summary-magazyn-bebnow"]');
     expect(badge).toHaveClass('animate-alarm-flash');

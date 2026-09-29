@@ -43,22 +43,28 @@ function findMetric(metrics: Metric[], id: string | undefined): Metric | undefin
   return metrics.find((m) => m.id === id);
 }
 
-/** `device.metricIds.awaria` bywa nieobecne (Darpin, Chłodnia 3 — brak bitu
+/** Awaria = flaga `alarm` metryki AWARIA z backendu, NIE `value === 1`.
+ * Od 2026-09 poziom awarii jest konfigurowalny (TRUE albo FALSE wzbudza
+ * alarm, `BoolAlarmRule`), a sygnał bez reguły dostaje w backendzie domyślne
+ * "alarm przy TRUE". Kafel, pasek alarmów i kropka w navbarze czytają więc tę
+ * samą flagę i nie mogą się rozjechać.
+ *
+ * `device.metricIds.awaria` bywa nieobecne (Darpin, Chłodnia 3 — brak bitu
  * awarii w PLC), pojedynczym id (większość urządzeń), albo tablicą id
  * (Rhoss, Chłodnia 3 — "alarm sterowania" + "alarm pompy") — kafel ma jedną
  * kropkę Awaria, więc wiele bitów OR-uje się w jeden `fault: boolean`
- * (dowolny bit=1 → fault=true), mimo że każdy bit nadal istnieje osobno w
+ * (dowolny bit w alarmie → fault=true), mimo że każdy bit nadal istnieje osobno w
  * `area.metrics`/pasku alarmów. */
 function resolveFault(metrics: Metric[], awaria: string | string[] | undefined): boolean {
   if (!awaria) return false;
   const ids = Array.isArray(awaria) ? awaria : [awaria];
-  return ids.some((id) => findMetric(metrics, id)?.value === 1);
+  return ids.some((id) => findMetric(metrics, id)?.alarm === true);
 }
 
 /** PRACA/AWARIA płyną przez ten sam kanał co metryki analogowe — Tag typu
  * BOOL dekoduje się do liczby 0/1, więc "running"/"fault" to po prostu
- * `value === 1` na odpowiedniej metryce (`fault` przez `resolveFault` powyżej,
- * bo `awaria` bywa zero/jeden/wiele bitów — patrz jej komentarz).
+ * `value === 1` na metryce PRACA; `fault` to flaga alarmu metryki AWARIA
+ * (`resolveFault` powyżej — patrz jej komentarz).
  *
  * Ten kontrakt jest EGZEKWOWANY, nie tylko opisany: `int(get_bool(...))` w
  * `backend/app/plc/decode.py` (funkcja `decode_tag_value`, gałąź BOOL), a

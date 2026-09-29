@@ -44,6 +44,25 @@ export interface BackendArea {
   alarms: unknown[];
 }
 
+/** One entry of `BackendArea.alarms` — every tag of the area currently in
+ * alarm, including tags outside the metric catalog (fault words). */
+export interface BackendAreaAlarm {
+  tag_id: number;
+  metric_id: string;
+  label: string;
+  description: string | null;
+}
+
+export function isBackendAreaAlarm(value: unknown): value is BackendAreaAlarm {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.tag_id === 'number' &&
+    typeof value.metric_id === 'string' &&
+    typeof value.label === 'string' &&
+    (value.description === null || typeof value.description === 'string')
+  );
+}
+
 export interface BackendStateUpdate {
   type: 'STATE_UPDATE';
   timestamp: string;

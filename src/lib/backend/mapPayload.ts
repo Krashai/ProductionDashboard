@@ -1,6 +1,7 @@
 import { AREAS, type AreaDefinition, type MetricDefinition } from '@/lib/areas';
-import type { AreaSnapshot, Metric } from '@/lib/types';
+import type { AreaSnapshot, ExtraAlarm, Metric } from '@/lib/types';
 import {
+  isBackendAreaAlarm,
   isBackendMetric,
   metricDefect,
   type BackendArea,
@@ -149,6 +150,9 @@ function mapArea(
     // quietly drop an ACTIVE alarm and assert everything is fine. Holding
     // both keeps the tile internally consistent: one last known state.
     const alarm = backendMetric?.alarm ?? previousMetric?.alarm ?? false;
+    // Same hold-last-known rule as `alarm`, so a held alarm keeps its reason.
+    const alarmDescription =
+      backendMetric !== undefined ? backendMetric.alarm_description : previousMetric?.alarmDescription ?? null;
     const history = [...(previousMetric?.history ?? []), value].slice(-ctx.historyLength);
 
     return {
@@ -159,6 +163,7 @@ function mapArea(
       value,
       history,
       alarm,
+      alarmDescription,
     };
   });
 
@@ -169,7 +174,20 @@ function mapArea(
     metrics,
     lastSeenAt: ctx.timestamp,
     isOnline: backendArea.online,
+    extraAlarms: mapExtraAlarms(areaDef, backendArea),
   };
+}
+
+/** Alarms of tags outside the metric catalog (fault words etc.). Catalog
+ * metrics are already covered by their own `alarm` flag, so they are
+ * skipped here to avoid a duplicate chip; a malformed entry costs only
+ * itself, like a malformed metric. */
+function mapExtraAlarms(areaDef: AreaDefinition, backendArea: BackendArea): ExtraAlarm[] {
+  const catalogIds = new Set(areaDef.metrics.map((m) => m.id));
+  return backendArea.alarms
+    .filter(isBackendAreaAlarm)
+    .filter((entry) => !catalogIds.has(entry.metric_id))
+    .map((entry) => ({ metricId: entry.metric_id, label: entry.label, description: entry.description }));
 }
 
 /** Pure: never mutates `snapshots`, always returns new area + metric objects. */
