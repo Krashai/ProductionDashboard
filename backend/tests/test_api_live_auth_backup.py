@@ -125,3 +125,14 @@ def test_restore_rejects_a_foreign_file(client):
 def test_restore_requires_the_admin_token(anon_client):
     body = {"format": "production-dashboard-config", "version": 1, "plcs": [], "tags": []}
     assert anon_client.post("/api/config/restore", json=body).status_code == 401
+
+
+def test_restore_rejects_an_oversized_backup(client):
+    from app.api.backup import MAX_BACKUP_PLCS
+
+    plc = dict(PLC, id=0)
+    body = {"format": "production-dashboard-config", "version": 1,
+            "plcs": [dict(plc, id=i) for i in range(MAX_BACKUP_PLCS + 1)], "tags": []}
+
+    assert client.post("/api/config/restore", json=body).status_code == 422
+    assert client.get("/api/plcs").json() == []

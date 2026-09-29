@@ -1,101 +1,50 @@
-def test_admin_panel_root_serves_html(client):
+"""GET / — the admin panel shell and its static ES modules.
+
+The panel's logic lives in backend/app/static/admin/*.js; pure modules are
+unit-tested with `node --test backend/tests_js/`, the UI itself is
+verified in a browser. These tests pin what the backend is responsible
+for: serving the shell and the assets, and the token-handling rules."""
+from pathlib import Path
+
+STATIC = Path(__file__).resolve().parents[1] / "app" / "static" / "admin"
+
+
+def test_admin_panel_root_serves_the_shell(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "<form" in resp.text.lower()
+    assert 'src="/static/admin/app.js"' in resp.text
+    assert 'id="login"' in resp.text
+    assert 'id="logout"' in resp.text
 
 
-def test_admin_panel_mentions_all_four_managed_entities(client):
-    resp = client.get("/")
-    text = resp.text.lower()
-    for keyword in ("plc", "tag", "threshold", "próg", "bit"):
-        assert keyword in text
+def test_static_modules_are_served_and_revalidated(client):
+    for path in ("app.js", "api.js", "admin.css", "editors/tag-editor.js"):
+        resp = client.get(f"/static/admin/{path}")
+        assert resp.status_code == 200, path
+        assert resp.headers["cache-control"] == "no-cache"
+    assert "javascript" in client.get("/static/admin/app.js").headers["content-type"]
 
 
-# --- LOW #B6: the admin token must not persist indefinitely in
-# localStorage with no logout affordance.
+def test_every_relative_import_resolves_to_a_served_file(client):
+    """A typo in an import path only fails in the browser — catch it here."""
+    import re
 
-def test_admin_panel_uses_session_storage_not_local_storage_for_the_token(client):
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "sessionStorage" in resp.text
-    assert "localStorage" not in resp.text
-
-
-def test_admin_panel_has_a_logout_control(client):
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert 'id="logout-btn"' in resp.text
+    for module in STATIC.rglob("*.js"):
+        for target in re.findall(r"from '(\.[^']+)'", module.read_text(encoding="utf-8")):
+            resolved = (module.parent / target).resolve().relative_to(STATIC)
+            assert client.get(f"/static/admin/{resolved.as_posix()}").status_code == 200, (module.name, target)
 
 
-# --- Kreator: przypisz zmienną (wizard) — see
-# VariableAssignmentWizard.md §5.3/§5.5. Per that doc's documented
-# trade-off, this project tests admin.html the same way as the rest of
-# the (framework-less) panel: presence of expected element ids/strings
-# in the server-rendered HTML, not a full DOM/browser harness.
+def test_token_lives_in_session_storage_never_local_storage():
+    sources = "\n".join(p.read_text(encoding="utf-8") for p in STATIC.rglob("*.js"))
+    assert "sessionStorage" in sources
+    assert "localStorage" not in sources
 
 
-def test_admin_panel_has_wizard_section(client):
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert 'id="wizard-section"' in resp.text
-    assert "Kreator: przypisz zmienną" in resp.text
-
-
-def test_admin_panel_wizard_has_a_control_for_each_of_the_six_steps(client):
-    resp = client.get("/")
-    text = resp.text
-    # Step 1: obszar + metryka
-    assert 'id="wizard-area-select"' in text
-    assert 'id="wizard-metric-list"' in text
-    # Step 2: PLC
-    assert 'id="wizard-plc-select"' in text
-    # Step 3: typ + adres
-    assert 'id="wizard-type-select"' in text
-    assert 'id="wizard-db-input"' in text
-    assert 'id="wizard-offset-input"' in text
-    assert 'id="wizard-bit-input"' in text
-    assert 'id="wizard-address-preview"' in text
-    # Step 4: testuj odczyt
-    assert 'id="wizard-probe-button"' in text
-    assert 'id="wizard-probe-result"' in text
-    # Step 5: próg alarmowy (opcjonalnie)
-    assert 'id="wizard-threshold-checkbox"' in text
-    assert 'id="wizard-threshold-min"' in text
-    assert 'id="wizard-threshold-max"' in text
-    # Step 6: zapisz
-    assert 'id="wizard-save-button"' in text
-    assert 'id="wizard-summary"' in text
-    assert 'id="wizard-result"' in text
-    assert 'id="wizard-retry-threshold-button"' in text
-
-
-def test_admin_panel_wizard_calls_probe_endpoint_and_admin_token_header(client):
-    resp = client.get("/")
-    text = resp.text
-    assert "/probe" in text
-    assert "X-Admin-Token" in text
-
-
-def test_admin_panel_advanced_section_is_relabeled(client):
-    resp = client.get("/")
-    assert "Zaawansowane / tag diagnostyczny" in resp.text
-
-
-def test_admin_panel_preexisting_sections_still_present(client):
-    """Guard against an accidental regression while adding the wizard
-    section: the pre-existing PLC/tag/threshold/bit-alarm forms and
-    tables must keep the exact ids the rest of this file's JS wires up
-    against.
-    """
-    resp = client.get("/")
-    text = resp.text
-    assert "Sterowniki PLC" in text
-    assert 'id="plc-form"' in text
-    assert 'id="plc-table"' in text
-    assert 'id="tag-form"' in text
-    assert 'id="tag-table"' in text
-    assert 'id="threshold-form"' in text
-    assert 'id="threshold-table"' in text
-    assert 'id="bitalarm-form"' in text
-    assert 'id="bitalarm-table"' in text
+def test_no_inner_html_anywhere_in_the_panel():
+    """Operator-supplied names/descriptions are rendered via textContent only."""
+    for module in STATIC.rglob("*.js"):
+        text = module.read_text(encoding="utf-8")
+        assert "innerHTML" not in text.replace("nigdy innerHTML", ""), module.name
+        assert "insertAdjacentHTML" not in text, module.name

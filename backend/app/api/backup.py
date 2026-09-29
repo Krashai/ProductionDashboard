@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.api.alarm_config import _replace_rules, assert_config_fits_tag, read_alarm_config
@@ -38,12 +38,19 @@ class BackupTag(TagCreate):
     alarm: AlarmConfig
 
 
+# Far above the real plant (5 areas, ~100 catalog metrics) while bounding
+# what an authenticated but malformed or hostile upload can make the server
+# parse and rewrite in one transaction.
+MAX_BACKUP_PLCS = 100
+MAX_BACKUP_TAGS = 5000
+
+
 class Backup(BaseModel):
     format: Literal["production-dashboard-config"]
     version: Literal[1]
     exported_at: str | None = None
-    plcs: list[BackupPlc]
-    tags: list[BackupTag]
+    plcs: list[BackupPlc] = Field(max_length=MAX_BACKUP_PLCS)
+    tags: list[BackupTag] = Field(max_length=MAX_BACKUP_TAGS)
 
     @model_validator(mode="after")
     def _references(self):

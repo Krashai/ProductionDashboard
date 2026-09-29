@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
 from app.api.alarm_config import router as alarm_config_router
@@ -39,6 +41,21 @@ from app.plc.broadcaster import broadcast_loop
 from app.plc.live_store import LiveStore
 from app.plc.supervisor import PollingSupervisor
 from app.plc.worker import PLCWorker, _default_client_factory, _default_tcp_probe
+
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """Admin-panel JS/CSS, revalidated on every load (ETag makes that a
+    cheap 304 on the LAN). The ES modules import each other by plain
+    relative path, so without this a browser could keep running an old
+    module next to a new one for a while after an update on the Pi."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def create_app(
@@ -143,6 +160,7 @@ def create_app(
     app.include_router(status_router)
     app.include_router(ws_router)
     app.include_router(admin_router)
+    app.mount("/static", _RevalidatedStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     return app
 

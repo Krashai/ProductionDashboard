@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:admin": "node --test backend/tests_js/"
   },
   "dependencies": {
     "clsx": "^2.1.1",
