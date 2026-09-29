@@ -41,7 +41,10 @@ def get_status(
         tags=config["tags"],
         threshold_rules=config["threshold_rules"],
         bit_alarm_rules=config["bit_alarm_rules"],
+        bool_alarm_rules=config["bool_alarm_rules"],
         live_snapshot=snapshot,
+        tracker=getattr(request.app.state, "alarm_tracker", None),
+        commit=False,
     )
 
     return {
@@ -50,6 +53,7 @@ def get_status(
         "tags": config["tags"],
         "threshold_rules": config["threshold_rules"],
         "bit_alarm_rules": config["bit_alarm_rules"],
+        "bool_alarm_rules": config["bool_alarm_rules"],
         "areas": areas,
         # MEDIUM #B2: surfaces whether the last reload_supervisor() call
         # (after a Plc/Tag CRUD write) succeeded — a CRUD write itself

@@ -9,7 +9,7 @@ import hmac
 import logging
 from collections.abc import Iterator
 
-from fastapi import Header, HTTPException, Request, status
+from fastapi import BackgroundTasks, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -53,14 +53,14 @@ async def require_admin_token(
     if limiter.is_blocked(client_key):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed admin-token attempts — try again later",
+            detail="Zbyt wiele nieudanych prób podania tokenu — spróbuj ponownie później.",
             headers={"Retry-After": str(int(limiter.window_s))},
         )
 
     limiter.record_failure(client_key)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Missing or invalid X-Admin-Token header",
+        detail="Brak lub nieprawidłowy token administratora.",
     )
 
 
@@ -109,32 +109,47 @@ def get_probe_tcp_probe(request: Request):
     return request.app.state.probe_tcp_probe
 
 
-def reload_supervisor(request: Request, db: Session) -> None:
-    """Re-reads Plc/Tag config and reconciles running PLCWorker threads.
+def schedule_supervisor_reload(request: Request, background_tasks: BackgroundTasks) -> None:
+    """Queue a worker reconcile to run after the response is sent.
     Call after every CRUD write that could affect polling (Plc/Tag
-    create/update/delete). ThresholdRule/BitAlarmRule writes do NOT need
-    this — see app.plc.broadcaster docstring, alarm evaluation re-reads
-    the DB every broadcast tick regardless.
+    create/update/delete). Alarm-rule writes do NOT need this — see
+    app.plc.broadcaster docstring, alarm evaluation re-reads the DB every
+    broadcast tick regardless.
+
+    F4 (2026-09-29): this used to run inline, so a save waited for the
+    supervisor to stop the PLC's old worker — which, for an offline PLC,
+    means waiting out the connect timeout (~3 s measured) on every save.
+    """
+    background_tasks.add_task(run_supervisor_reload, request.app)
+
+
+def run_supervisor_reload(app) -> None:
+    """Re-read Plc/Tag config from a fresh session and reconcile workers.
+
+    Serialized by app.state.reload_lock and loading *inside* it, so when
+    two writes land close together the reload that runs last always sees
+    the latest committed config (never a stale snapshot taken earlier).
 
     MEDIUM #B2: the CRUD write itself has already been committed to the
     DB by the time this runs — a failure here (e.g. a worker_factory that
-    raises while spinning up a new PLCWorker) must not turn into a 500
-    for a request that otherwise succeeded and whose data is already
-    durable. Any exception is caught, logged with a full traceback, and
-    reflected only as a generic health flag on app.state — never
-    re-raised.
+    raises while spinning up a new PLCWorker) is caught, logged with a
+    full traceback, and reflected only as a generic health flag on
+    app.state (surfaced by /status) — never re-raised.
     """
     from app.db.config_loader import load_plcs, load_tags
 
-    supervisor = get_supervisor(request)
-    try:
-        supervisor.reload(load_plcs(db), load_tags(db))
-    except Exception:
-        logger.exception(
-            "reload_supervisor: PollingSupervisor.reload() failed after a "
-            "successful DB write — config was committed, but polling "
-            "threads may be out of sync with it"
-        )
-        request.app.state.supervisor_healthy = False
-    else:
-        request.app.state.supervisor_healthy = True
+    with app.state.reload_lock:
+        db = app.state.session_local()
+        try:
+            app.state.supervisor.reload(load_plcs(db), load_tags(db))
+        except Exception:
+            logger.exception(
+                "run_supervisor_reload: PollingSupervisor.reload() failed after a "
+                "successful DB write — config was committed, but polling "
+                "threads may be out of sync with it"
+            )
+            app.state.supervisor_healthy = False
+        else:
+            app.state.supervisor_healthy = True
+        finally:
+            db.close()

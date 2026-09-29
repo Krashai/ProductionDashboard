@@ -13,13 +13,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.api.admin import router as admin_router
+from app.api.alarm_config import router as alarm_config_router
 from app.api.areas import router as areas_router
+from app.api.backup import router as backup_router
 from app.api.bit_alarms import router as bit_alarms_router
+from app.api.live import router as live_router
 from app.api.plcs import router as plcs_router
 from app.api.rate_limit import FailedAuthLimiter
 from app.api.status import router as status_router
@@ -28,7 +32,9 @@ from app.api.thresholds import router as thresholds_router
 from app.api.websocket import ConnectionManager
 from app.api.ws_route import router as ws_router
 from app.db.config_loader import load_plcs, load_tags
-from app.db.database import Base, build_engine_and_sessionmaker
+from app.db.database import build_engine_and_sessionmaker
+from app.db.migrations import ensure_schema
+from app.plc.alarm_state import AlarmTracker
 from app.plc.broadcaster import broadcast_loop
 from app.plc.live_store import LiveStore
 from app.plc.supervisor import PollingSupervisor
@@ -83,6 +89,7 @@ def create_app(
     engine, session_local = build_engine_and_sessionmaker(database_url)
 
     live_store = LiveStore()
+    alarm_tracker = AlarmTracker()
     supervisor = PollingSupervisor(
         live_store=live_store, worker_factory=worker_factory, poll_interval=poll_interval
     )
@@ -90,7 +97,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        Base.metadata.create_all(bind=engine)
+        ensure_schema(engine)
 
         db = session_local()
         try:
@@ -99,7 +106,7 @@ def create_app(
             db.close()
 
         broadcaster_task = asyncio.create_task(
-            broadcast_loop(session_local, live_store, ws_manager, poll_interval)
+            broadcast_loop(session_local, live_store, ws_manager, poll_interval, alarm_tracker)
         )
         try:
             yield
@@ -117,6 +124,8 @@ def create_app(
     app.state.engine = engine
     app.state.supervisor = supervisor
     app.state.live_store = live_store
+    app.state.alarm_tracker = alarm_tracker
+    app.state.reload_lock = threading.Lock()
     app.state.ws_manager = ws_manager
     app.state.admin_token = admin_token
     app.state.auth_limiter = auth_limiter or FailedAuthLimiter()
@@ -127,6 +136,9 @@ def create_app(
     app.include_router(tags_router)
     app.include_router(thresholds_router)
     app.include_router(bit_alarms_router)
+    app.include_router(alarm_config_router)
+    app.include_router(live_router)
+    app.include_router(backup_router)
     app.include_router(areas_router)
     app.include_router(status_router)
     app.include_router(ws_router)

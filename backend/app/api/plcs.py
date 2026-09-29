@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,7 @@ from app.api.deps import (
     get_db,
     get_probe_client_factory,
     get_probe_tcp_probe,
-    reload_supervisor,
+    schedule_supervisor_reload,
     require_admin_token,
 )
 from app.db.models import Plc
@@ -27,7 +27,7 @@ _write_protected = [Depends(require_admin_token)]
 def _get_or_404(db: Session, plc_id: int) -> Plc:
     plc = db.get(Plc, plc_id)
     if plc is None:
-        raise HTTPException(status_code=404, detail=f"PLC {plc_id} not found")
+        raise HTTPException(status_code=404, detail=f"Nie znaleziono sterownika PLC {plc_id}.")
     return plc
 
 
@@ -42,34 +42,34 @@ def get_plc(plc_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=PlcRead, status_code=201, dependencies=_write_protected)
-def create_plc(payload: PlcCreate, request: Request, db: Session = Depends(get_db)):
+def create_plc(payload: PlcCreate, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     plc = Plc(**payload.model_dump())
     db.add(plc)
     db.commit()
     db.refresh(plc)
-    reload_supervisor(request, db)
+    schedule_supervisor_reload(request, background_tasks)
     return plc
 
 
 @router.put("/{plc_id}", response_model=PlcRead, dependencies=_write_protected)
 def update_plc(
-    plc_id: int, payload: PlcUpdate, request: Request, db: Session = Depends(get_db)
+    plc_id: int, payload: PlcUpdate, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
     plc = _get_or_404(db, plc_id)
     for field, value in payload.model_dump().items():
         setattr(plc, field, value)
     db.commit()
     db.refresh(plc)
-    reload_supervisor(request, db)
+    schedule_supervisor_reload(request, background_tasks)
     return plc
 
 
 @router.delete("/{plc_id}", status_code=204, dependencies=_write_protected)
-def delete_plc(plc_id: int, request: Request, db: Session = Depends(get_db)):
+def delete_plc(plc_id: int, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     plc = _get_or_404(db, plc_id)
     db.delete(plc)
     db.commit()
-    reload_supervisor(request, db)
+    schedule_supervisor_reload(request, background_tasks)
 
 
 @router.post("/{plc_id}/probe", dependencies=_write_protected)

@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.domain.alarm_kinds import AWARIA_METRIC_IDS
 from app.domain.areas import AREA_DEFINITIONS
+from app.plc.alarm_state import AlarmTracker
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,11 @@ def _scale_metric_value(metric_id: str, value: Any) -> Any:
     return value / _POWER_SCALE_FACTOR
 
 
+def tag_display_value(tag: dict, live_snapshot: dict[int, dict]) -> Any:
+    """The value exactly as the wallboard shows it (unit-scaled), or None."""
+    return _scale_metric_value(tag["metric_id"], _tag_value(tag, live_snapshot))
+
+
 def _format_range(min_: float | None, max_: float | None) -> str:
     if min_ is not None and max_ is not None:
         return f"Poza zakresem ({min_}-{max_})"
@@ -59,71 +66,63 @@ def _format_range(min_: float | None, max_: float | None) -> str:
     return f"Powyżej maksimum ({max_})"
 
 
-def _evaluate_threshold(value: Any, rule: dict | None) -> tuple[bool, str | None]:
-    if rule is None or value is None:
-        return False, None
+def _threshold_breached(value: Any, rule: dict, was_active: bool) -> bool:
+    """Strict limits to raise; limits pulled in by `hysteresis` to stay
+    raised — so an alarm only clears once the value is back inside
+    (min + h .. max - h), not the moment it touches the limit again."""
     min_ = rule.get("min")
     max_ = rule.get("max")
-    breached = (min_ is not None and value < min_) or (max_ is not None and value > max_)
-    if not breached:
-        return False, None
-    return True, _format_range(min_, max_)
+    band = (rule.get("hysteresis") or 0.0) if was_active else 0.0
+    low = min_ + band if min_ is not None else None
+    high = max_ - band if max_ is not None else None
+    return (low is not None and value < low) or (high is not None and value > high)
 
 
-def _evaluate_bit_alarms(value: Any, rules: list[dict]) -> tuple[bool, str | None]:
-    if value is None or not rules:
-        return False, None
-    active_descriptions = [
-        rule["description"]
-        for rule in rules
-        if (int(value) >> rule["bit_index"]) & 1
-    ]
-    if not active_descriptions:
-        return False, None
-    return True, "; ".join(active_descriptions)
+def _active_bit_descriptions(value: Any, rules: list[dict]) -> list[str]:
+    return [rule["description"] for rule in rules if (int(value) >> rule["bit_index"]) & 1]
 
 
-def build_area_payload(
-    plcs: list[dict],
+# Catalog AWARIA signals without an explicit BoolAlarmRule behave as if they
+# had this one — see app.domain.alarm_kinds.AWARIA_METRIC_IDS.
+_IMPLICIT_AWARIA_RULE = {"active_value": 1, "description": None, "delay_s": 0.0}
+
+
+def evaluate_tag_alarms(
     tags: list[dict],
     threshold_rules: list[dict],
     bit_alarm_rules: list[dict],
+    bool_alarm_rules: list[dict],
     live_snapshot: dict[int, dict],
-) -> list[dict]:
-    """Return one entry per known UI area (always all 5, in a stable
-    order), each with its metrics populated from whichever tags/PLCs are
-    currently configured for that area_id.
+    tracker: AlarmTracker | None = None,
+    commit: bool = True,
+) -> dict[int, tuple[bool, str | None]]:
+    """(alarm, description) for every tag, keyed by tag id.
+
+    Without a `tracker`, evaluation is stateless: delays are ignored and
+    hysteresis never applies (no memory of a previous alarm). The broadcast
+    loop passes the app's tracker with commit=True; read-only views pass
+    commit=False — see app.plc.alarm_state.
     """
-    plcs_by_area: dict[str, list[dict]] = {}
-    plc_area_by_id: dict[int, str] = {}
-    for plc in plcs:
-        plcs_by_area.setdefault(plc["area_id"], []).append(plc)
-        plc_area_by_id[plc["id"]] = plc["area_id"]
-
-    threshold_by_tag_id: dict[int, dict] = {r["tag_id"]: r for r in threshold_rules}
-    bit_alarms_by_tag_id: dict[int, list[dict]] = {}
+    threshold_by_tag = {r["tag_id"]: r for r in threshold_rules}
+    bool_by_tag = {r["tag_id"]: r for r in bool_alarm_rules}
+    bits_by_tag: dict[int, list[dict]] = {}
     for rule in bit_alarm_rules:
-        bit_alarms_by_tag_id.setdefault(rule["tag_id"], []).append(rule)
+        bits_by_tag.setdefault(rule["tag_id"], []).append(rule)
 
-    # Every tag is looked at twice per area (once for `metrics`, once for
-    # `alarms`) — memoize the alarm evaluation per tag id so a tag's
-    # threshold/bit-alarm rules are only evaluated once per build.
-    _alarm_cache: dict[int, tuple[bool, str | None]] = {}
+    def debounce(tag_id: int, raw: bool, delay_s: float) -> bool:
+        if tracker is None:
+            return raw
+        return tracker.step(tag_id, raw, delay_s or 0.0, commit=commit)
 
-    def _tag_alarm(tag: dict) -> tuple[bool, str | None]:
-        cached = _alarm_cache.get(tag["id"])
-        if cached is not None:
-            return cached
+    results: dict[int, tuple[bool, str | None]] = {}
+    for tag in tags:
+        tag_id = tag["id"]
         value = _scale_metric_value(tag["metric_id"], _tag_value(tag, live_snapshot))
-        threshold_rule = threshold_by_tag_id.get(tag["id"])
-        bit_rules = bit_alarms_by_tag_id.get(tag["id"], [])
         try:
-            if threshold_rule is not None:
-                result = _evaluate_threshold(value, threshold_rule)
-            elif bit_rules:
-                result = _evaluate_bit_alarms(value, bit_rules)
-            else:
-                result = (False, None)
+            results[tag_id] = _evaluate_one(
+                tag, value, threshold_by_tag.get(tag_id), bool_by_tag.get(tag_id),
+                bits_by_tag.get(tag_id, []), tracker, debounce,
+            )
         except Exception:
             # A rule that cannot be evaluated against this tag's value —
             # a STRING tag carrying a min/max threshold, say — used to
@@ -140,13 +139,75 @@ def build_area_payload(
                 "Alarm rule evaluation failed for tag %r (id=%s, metric_id=%r, "
                 "value_type=%s) — degrading this tag to 'no alarm'",
                 tag["name"],
-                tag["id"],
+                tag_id,
                 tag["metric_id"],
                 type(value).__name__,
             )
-            result = (False, None)
-        _alarm_cache[tag["id"]] = result
-        return result
+            results[tag_id] = (False, None)
+    return results
+
+
+def _evaluate_one(tag, value, threshold_rule, bool_rule, bit_rules, tracker, debounce):
+    tag_id = tag["id"]
+    if bool_rule is None and not threshold_rule and not bit_rules:
+        if tag["metric_id"] in AWARIA_METRIC_IDS and tag.get("type", "BOOL") == "BOOL":
+            bool_rule = _IMPLICIT_AWARIA_RULE
+
+    if value is None:
+        # PLC offline / tag not polled: not a fault reading, and any
+        # pending delay or active state starts over once data returns.
+        debounce(tag_id, False, 0.0)
+        return False, None
+
+    if threshold_rule is not None:
+        was_active = tracker.is_active(tag_id) if tracker else False
+        raw = _threshold_breached(value, threshold_rule, was_active)
+        alarm = debounce(tag_id, raw, threshold_rule.get("delay_s") or 0.0)
+        return (True, _format_range(threshold_rule.get("min"), threshold_rule.get("max"))) if alarm else (False, None)
+
+    if bool_rule is not None:
+        raw = int(value) == int(bool_rule["active_value"])
+        alarm = debounce(tag_id, raw, bool_rule.get("delay_s") or 0.0)
+        return (True, bool_rule.get("description") or None) if alarm else (False, None)
+
+    if bit_rules:
+        descriptions = _active_bit_descriptions(value, bit_rules)
+        alarm = debounce(tag_id, bool(descriptions), 0.0)
+        return (True, "; ".join(descriptions)) if alarm else (False, None)
+
+    return False, None
+
+
+def build_area_payload(
+    plcs: list[dict],
+    tags: list[dict],
+    threshold_rules: list[dict],
+    bit_alarm_rules: list[dict],
+    live_snapshot: dict[int, dict],
+    bool_alarm_rules: list[dict] | None = None,
+    tracker: AlarmTracker | None = None,
+    commit: bool = True,
+) -> list[dict]:
+    """Return one entry per known UI area (always all 5, in a stable
+    order), each with its metrics populated from whichever tags/PLCs are
+    currently configured for that area_id.
+    """
+    plcs_by_area: dict[str, list[dict]] = {}
+    plc_area_by_id: dict[int, str] = {}
+    for plc in plcs:
+        plcs_by_area.setdefault(plc["area_id"], []).append(plc)
+        plc_area_by_id[plc["id"]] = plc["area_id"]
+
+    # Evaluated once per build for every tag: each tag is looked at twice
+    # per area (for `metrics` and for `alarms`), and with a tracker the
+    # evaluation advances state, so it must happen exactly once per tick.
+    tag_alarms = evaluate_tag_alarms(
+        tags, threshold_rules, bit_alarm_rules, bool_alarm_rules or [], live_snapshot,
+        tracker=tracker, commit=commit,
+    )
+
+    def _tag_alarm(tag: dict) -> tuple[bool, str | None]:
+        return tag_alarms.get(tag["id"], (False, None))
 
     result: list[dict] = []
     for area in AREA_DEFINITIONS:

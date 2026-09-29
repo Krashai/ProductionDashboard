@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin_token
 from app.db.alarm_rule_lock import THRESHOLD_BIT_ALARM_LOCK
-from app.db.models import BitAlarmRule, Tag, ThresholdRule
+from app.db.models import BitAlarmRule, BoolAlarmRule, Tag, ThresholdRule
+from app.domain.alarm_kinds import rule_incompatibility
 from app.db.schemas import BitAlarmRuleCreate, BitAlarmRuleRead, BitAlarmRuleUpdate
 
 router = APIRouter(prefix="/api/bit-alarms", tags=["bit-alarms"])
@@ -19,22 +20,29 @@ _write_protected = [Depends(require_admin_token)]
 def _get_or_404(db: Session, rule_id: int) -> BitAlarmRule:
     rule = db.get(BitAlarmRule, rule_id)
     if rule is None:
-        raise HTTPException(status_code=404, detail=f"BitAlarmRule {rule_id} not found")
+        raise HTTPException(status_code=404, detail=f"Nie znaleziono alarmu bitowego {rule_id}.")
     return rule
 
 
-def _assert_tag_exists_and_free_of_threshold(db: Session, tag_id: int) -> None:
-    if db.get(Tag, tag_id) is None:
-        raise HTTPException(status_code=404, detail=f"Tag {tag_id} not found")
-    has_threshold = (
+def _assert_tag_exists_and_free_of_threshold(
+    db: Session, tag_id: int, bit_index: int | None = None
+) -> None:
+    tag = db.get(Tag, tag_id)
+    if tag is None:
+        raise HTTPException(status_code=404, detail=f"Nie znaleziono zmiennej {tag_id}.")
+    reason = rule_incompatibility("bits", tag.type, bit_index)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    has_other_rule = (
         db.query(ThresholdRule).filter(ThresholdRule.tag_id == tag_id).first() is not None
+        or db.query(BoolAlarmRule).filter(BoolAlarmRule.tag_id == tag_id).first() is not None
     )
-    if has_threshold:
+    if has_other_rule:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Tag {tag_id} already has a threshold rule; a tag may have "
-                "either a threshold or bit-alarm rules, never both."
+                f"Zmienna {tag_id} ma już inny rodzaj alarmu; "
+                "zmienna może mieć tylko jeden rodzaj alarmu."
             ),
         )
 
@@ -54,7 +62,7 @@ def create_bit_alarm(payload: BitAlarmRuleCreate, db: Session = Depends(get_db))
     # See app.db.alarm_rule_lock docstring: closes the TOCTOU window
     # between the "no threshold yet" check and the INSERT.
     with THRESHOLD_BIT_ALARM_LOCK:
-        _assert_tag_exists_and_free_of_threshold(db, payload.tag_id)
+        _assert_tag_exists_and_free_of_threshold(db, payload.tag_id, payload.bit_index)
         rule = BitAlarmRule(**payload.model_dump())
         db.add(rule)
         try:
@@ -63,10 +71,7 @@ def create_bit_alarm(payload: BitAlarmRuleCreate, db: Session = Depends(get_db))
             db.rollback()
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"Tag {payload.tag_id} already has a bit-alarm rule for "
-                    f"bit {payload.bit_index}"
-                ),
+                detail=f"Zmienna {payload.tag_id} ma już alarm na bicie {payload.bit_index}.",
             )
     db.refresh(rule)
     return rule
@@ -77,13 +82,17 @@ def update_bit_alarm(
     rule_id: int, payload: BitAlarmRuleUpdate, db: Session = Depends(get_db)
 ):
     rule = _get_or_404(db, rule_id)
+    if payload.bit_index is not None:
+        reason = rule_incompatibility("bits", rule.tag.type, payload.bit_index)
+        if reason:
+            raise HTTPException(status_code=409, detail=reason)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="bit_index already in use for this tag")
+        raise HTTPException(status_code=409, detail="Ten bit ma już opis alarmu w tej zmiennej.")
     db.refresh(rule)
     return rule
 

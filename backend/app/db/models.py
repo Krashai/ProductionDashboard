@@ -1,7 +1,8 @@
-"""ORM models for the PLC/Tag/ThresholdRule/BitAlarmRule config, per
-NewBackendPlan.md §3.
+"""ORM models for the PLC/Tag/ThresholdRule/BitAlarmRule/BoolAlarmRule
+config, per NewBackendPlan.md §3.
 
-Design decision — "threshold XOR bit-alarms, never both" (§8 open
+Design decision — "one alarm kind per tag" (originally "threshold XOR
+bit-alarms, never both"; BoolAlarmRule joined the same rule in 2026-09) (§8 open
 question): kept as the working assumption, but enforced at the *service*
 layer (see app.api.thresholds / app.api.bit_alarms), not as a DB-level
 CHECK constraint. Rationale: a hard schema constraint (e.g. a trigger or
@@ -91,6 +92,12 @@ class Tag(Base):
         back_populates="tag",
         cascade="all, delete-orphan",
     )
+    bool_alarm_rule: Mapped["BoolAlarmRule | None"] = relationship(
+        "BoolAlarmRule",
+        back_populates="tag",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid only
         return f"<Tag id={self.id} name={self.name!r} metric_id={self.metric_id!r}>"
@@ -106,6 +113,12 @@ class ThresholdRule(Base):
     )
     min: Mapped[float | None] = mapped_column(Float, nullable=True)
     max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Band the value must come back inside (min+h .. max-h) before an
+    # active alarm clears — stops a reading hovering at the limit from
+    # blinking the alarm every poll. 0 = clear as soon as back in range.
+    hysteresis: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # Seconds the limit must stay breached before the alarm raises.
+    delay_s: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     tag: Mapped["Tag"] = relationship("Tag", back_populates="threshold_rule")
 
@@ -124,3 +137,22 @@ class BitAlarmRule(Base):
     description: Mapped[str] = mapped_column(String, nullable=False)
 
     tag: Mapped["Tag"] = relationship("Tag", back_populates="bit_alarm_rules")
+
+
+class BoolAlarmRule(Base):
+    """Alarm on a single BOOL signal. `active_value` is the level that
+    means "fault" — 1 (TRUE) for most AWARIA bits, 0 (FALSE) for
+    fail-safe wiring where a healthy device holds the signal high."""
+
+    __tablename__ = "bool_alarm_rules"
+    __table_args__ = (UniqueConstraint("tag_id", name="uq_bool_alarm_rules_tag_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), nullable=False
+    )
+    active_value: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    delay_s: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    tag: Mapped["Tag"] = relationship("Tag", back_populates="bool_alarm_rule")

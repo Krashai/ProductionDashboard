@@ -18,17 +18,27 @@ from sqlalchemy.orm import Session
 
 from app.db.config_loader import load_all
 from app.plc.aggregator import build_area_payload
+from app.plc.alarm_state import AlarmTracker
 from app.plc.live_store import LiveStore
 
 
-async def broadcast_once(db: Session, live_store: LiveStore, ws_manager) -> None:
+async def broadcast_once(
+    db: Session, live_store: LiveStore, ws_manager, tracker: AlarmTracker | None = None
+) -> None:
     config = load_all(db)
+    if tracker is not None:
+        tracker.retain({tag["id"] for tag in config["tags"]})
+    # The only caller that advances alarm state (delays, hysteresis) —
+    # exactly once per tick. See app.plc.alarm_state.
     areas = build_area_payload(
         plcs=config["plcs"],
         tags=config["tags"],
         threshold_rules=config["threshold_rules"],
         bit_alarm_rules=config["bit_alarm_rules"],
+        bool_alarm_rules=config["bool_alarm_rules"],
         live_snapshot=live_store.snapshot(),
+        tracker=tracker,
+        commit=True,
     )
     message = {
         "type": "STATE_UPDATE",
@@ -39,7 +49,11 @@ async def broadcast_once(db: Session, live_store: LiveStore, ws_manager) -> None
 
 
 async def broadcast_loop(
-    session_local, live_store: LiveStore, ws_manager, interval: float = 1.0
+    session_local,
+    live_store: LiveStore,
+    ws_manager,
+    interval: float = 1.0,
+    tracker: AlarmTracker | None = None,
 ) -> None:
     """Runs until cancelled. Each tick opens/closes its own short-lived
     DB session — cheap for SQLite at this scale (8 PLCs, ~40 tags)."""
@@ -47,7 +61,7 @@ async def broadcast_loop(
         await asyncio.sleep(interval)
         db = session_local()
         try:
-            await broadcast_once(db, live_store, ws_manager)
+            await broadcast_once(db, live_store, ws_manager, tracker)
         except Exception as exc:  # never let a bad tick kill the loop
             print(f"broadcast_loop tick failed: {exc}", flush=True)
         finally:

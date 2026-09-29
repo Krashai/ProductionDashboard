@@ -70,7 +70,9 @@ def test_load_threshold_rules_returns_plain_dicts(db_session):
 
     rules = load_threshold_rules(db_session)
 
-    assert rules == [{"id": 1, "tag_id": tag.id, "min": 1.0, "max": 9.0}]
+    assert rules == [
+        {"id": 1, "tag_id": tag.id, "min": 1.0, "max": 9.0, "hysteresis": 0.0, "delay_s": 0.0}
+    ]
 
 
 def test_load_bit_alarm_rules_returns_plain_dicts(db_session):

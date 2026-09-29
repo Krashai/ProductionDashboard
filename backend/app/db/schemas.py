@@ -133,6 +133,8 @@ class ThresholdRuleBase(BaseModel):
     tag_id: int
     min: float | None = None
     max: float | None = None
+    hysteresis: float = Field(default=0.0, ge=0)
+    delay_s: float = Field(default=0.0, ge=0, le=3600)
 
     @field_validator("max")
     @classmethod
@@ -150,6 +152,8 @@ class ThresholdRuleCreate(ThresholdRuleBase):
 class ThresholdRuleUpdate(BaseModel):
     min: float | None = None
     max: float | None = None
+    hysteresis: float | None = Field(default=None, ge=0)
+    delay_s: float | None = Field(default=None, ge=0, le=3600)
 
 
 class ThresholdRuleRead(ThresholdRuleBase):

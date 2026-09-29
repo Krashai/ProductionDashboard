@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.db.models import BitAlarmRule, Plc, Tag, ThresholdRule
+from app.db.models import BitAlarmRule, BoolAlarmRule, Plc, Tag, ThresholdRule
 
 
 def load_plcs(db: Session) -> list[dict]:
@@ -50,7 +50,14 @@ def load_tags(db: Session) -> list[dict]:
 
 def load_threshold_rules(db: Session) -> list[dict]:
     return [
-        {"id": r.id, "tag_id": r.tag_id, "min": r.min, "max": r.max}
+        {
+            "id": r.id,
+            "tag_id": r.tag_id,
+            "min": r.min,
+            "max": r.max,
+            "hysteresis": r.hysteresis,
+            "delay_s": r.delay_s,
+        }
         for r in db.query(ThresholdRule).all()
     ]
 
@@ -67,6 +74,19 @@ def load_bit_alarm_rules(db: Session) -> list[dict]:
     ]
 
 
+def load_bool_alarm_rules(db: Session) -> list[dict]:
+    return [
+        {
+            "id": r.id,
+            "tag_id": r.tag_id,
+            "active_value": r.active_value,
+            "description": r.description,
+            "delay_s": r.delay_s,
+        }
+        for r in db.query(BoolAlarmRule).all()
+    ]
+
+
 def load_all(db: Session) -> dict:
     """Convenience bundle used by the broadcaster loop and /status."""
     return {
@@ -74,4 +94,5 @@ def load_all(db: Session) -> dict:
         "tags": load_tags(db),
         "threshold_rules": load_threshold_rules(db),
         "bit_alarm_rules": load_bit_alarm_rules(db),
+        "bool_alarm_rules": load_bool_alarm_rules(db),
     }

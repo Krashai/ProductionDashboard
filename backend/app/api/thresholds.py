@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin_token
 from app.db.alarm_rule_lock import THRESHOLD_BIT_ALARM_LOCK
-from app.db.models import BitAlarmRule, Tag, ThresholdRule
+from app.db.models import BitAlarmRule, BoolAlarmRule, Tag, ThresholdRule
+from app.domain.alarm_kinds import rule_incompatibility
 from app.db.schemas import ThresholdRuleCreate, ThresholdRuleRead, ThresholdRuleUpdate
 
 router = APIRouter(prefix="/api/thresholds", tags=["thresholds"])
@@ -19,22 +20,27 @@ _write_protected = [Depends(require_admin_token)]
 def _get_or_404(db: Session, rule_id: int) -> ThresholdRule:
     rule = db.get(ThresholdRule, rule_id)
     if rule is None:
-        raise HTTPException(status_code=404, detail=f"ThresholdRule {rule_id} not found")
+        raise HTTPException(status_code=404, detail=f"Nie znaleziono progu {rule_id}.")
     return rule
 
 
 def _assert_tag_exists_and_free_of_bit_alarms(db: Session, tag_id: int) -> None:
-    if db.get(Tag, tag_id) is None:
-        raise HTTPException(status_code=404, detail=f"Tag {tag_id} not found")
-    has_bit_alarm = (
+    tag = db.get(Tag, tag_id)
+    if tag is None:
+        raise HTTPException(status_code=404, detail=f"Nie znaleziono zmiennej {tag_id}.")
+    reason = rule_incompatibility("threshold", tag.type)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+    has_other_rule = (
         db.query(BitAlarmRule).filter(BitAlarmRule.tag_id == tag_id).first() is not None
+        or db.query(BoolAlarmRule).filter(BoolAlarmRule.tag_id == tag_id).first() is not None
     )
-    if has_bit_alarm:
+    if has_other_rule:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Tag {tag_id} already has bit-alarm rule(s); a tag may have "
-                "either a threshold or bit-alarm rules, never both."
+                f"Zmienna {tag_id} ma już inny rodzaj alarmu; "
+                "zmienna może mieć tylko jeden rodzaj alarmu."
             ),
         )
 
@@ -62,7 +68,7 @@ def create_threshold(payload: ThresholdRuleCreate, db: Session = Depends(get_db)
         except IntegrityError:
             db.rollback()
             raise HTTPException(
-                status_code=409, detail=f"Tag {payload.tag_id} already has a threshold rule"
+                status_code=409, detail=f"Zmienna {payload.tag_id} ma już próg alarmowy."
             )
     db.refresh(rule)
     return rule
