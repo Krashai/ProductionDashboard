@@ -28,9 +28,20 @@ services:
       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:?Set ADMIN_API_TOKEN (env or .env) before starting — no default is provided, by design}
     networks:
       - dashboard_plc_net
+      - proddash_internal
 
 networks:
   dashboard_plc_net:
+    driver: bridge
+  # Shared with the frontend stack (../docker-compose.yml joins it as
+  # `external`) so the Next.js server can forward the browser's same-origin
+  # `/ws` upgrade to this container by name — `http://dashboard-plc-backend:8001`.
+  # Explicit `name:` so Compose doesn't prefix it with this project's name
+  # ("backend"), and a name distinct from ProductionMonitor's `prod_net`/
+  # `monitor_net` (and its `dashboard_*` project prefix) on the same Pi.
+  # This stack creates it, so it must be up before the frontend stack.
+  proddash_internal:
+    name: proddash_internal
     driver: bridge
 
 volumes:

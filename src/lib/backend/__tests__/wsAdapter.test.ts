@@ -58,6 +58,38 @@ afterEach(() => {
 });
 
 describe('createWebSocketAdapter', () => {
+  test('bez jawnego url łączy się same-origin z adresem strony (wyliczanym przy połączeniu)', () => {
+    const urls: string[] = [];
+    const adapter = createWebSocketAdapter({
+      socketFactory: (url) => {
+        urls.push(url);
+        return new FakeSocket();
+      },
+    });
+
+    const unsubscribe = adapter.subscribe(() => {});
+
+    // jsdom: http://localhost:3000, testy nie ustawiają basePath.
+    expect(urls).toEqual(['ws://localhost:3000/ws']);
+    unsubscribe();
+  });
+
+  test('jawny url ma pierwszeństwo przed adresem wyliczonym ze strony', () => {
+    const urls: string[] = [];
+    const adapter = createWebSocketAdapter({
+      url: 'ws://example.test/ws',
+      socketFactory: (url) => {
+        urls.push(url);
+        return new FakeSocket();
+      },
+    });
+
+    const unsubscribe = adapter.subscribe(() => {});
+
+    expect(urls).toEqual(['ws://example.test/ws']);
+    unsubscribe();
+  });
+
   test('emituje poprawnie zmapowane snapshoty po odebraniu poprawnej wiadomości', () => {
     const { factory, sockets } = createFakeSocketFactory();
     const listener = vi.fn();

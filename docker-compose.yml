@@ -1,8 +1,10 @@
 # Standalone stack for the ProductionDashboard kiosk frontend (Next.js).
 #
-# Deliberately separate from backend/docker-compose.yml — the two can be
-# deployed on different hosts (kiosk display vs. PLC gateway machine) and
-# have no need to share a Docker network. Also isolated from
+# Separate from backend/docker-compose.yml, but joined to it through the
+# shared `proddash_internal` network: the browser connects same-origin to
+# `${BASE_PATH}/ws` on this server, which forwards the WebSocket upgrade to
+# the backend (rewrite in next.config.mjs). Start the backend stack first —
+# it creates that network. Also isolated from
 # ProductionMonitor's `prod_net` and energy-guard's `energy_network`: own
 # bridge network (`dashboard_frontend_net`) and own host port (3002),
 # chosen to avoid the ports already bound on this host — see README.md
@@ -13,10 +15,11 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # NEXT_PUBLIC_* vars are inlined at build time by `next build` — see
-        # Dockerfile comment. Override in `.env` next to this file if the
-        # backend isn't reachable at the default address.
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8001/ws}
+        # Build-time values — see Dockerfile comment.
+        # Where this server (not the browser) reaches the backend. The
+        # default is the backend container's name on `proddash_internal`;
+        # change it only if the backend runs on another host.
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://dashboard-plc-backend:8001}
         NEXT_PUBLIC_DATA_SOURCE: ${NEXT_PUBLIC_DATA_SOURCE:-ws}
         # Subpath this deployment is served under behind a reverse proxy
         # (e.g. "/infrastructure") — empty by default (served from "/").
@@ -28,7 +31,12 @@ services:
       - "3002:3000"
     networks:
       - dashboard_frontend_net
+      - proddash_internal
 
 networks:
   dashboard_frontend_net:
     driver: bridge
+  # Created by backend/docker-compose.yml — see the comment there.
+  proddash_internal:
+    name: proddash_internal
+    external: true
