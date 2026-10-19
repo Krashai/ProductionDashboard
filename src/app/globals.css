@@ -49,3 +49,129 @@ body {
     animation: none;
   }
 }
+
+/* Tryb `narrow:` ekranu przeglądu (okno obok drugiego okna, patrz
+   tailwind.config.ts). Kafel z `narrow:[container-type:size]` jest
+   kontenerem, więc `cqi`/`cqh` w `--fit-value` odnoszą się do JEGO
+   szerokości/wysokości. Rozmiar liczby to najmniejsza z trzech granic:
+   - szerokość: wnętrze kafla (minus 20px poziomego paddingu `narrow:pl-3
+     pr-2`, `FIT_CLASSES.body` w overview-fit.ts) / budżet znaków rzędu
+     (`--value-chars`, patrz `fitValueChars`) × 0.56em na znak. Zmierzone: 0.536em (Liberation Mono + `tracking-tighter`);
+     typowe fonty monospace mają 0.6em − 0.05em trackingu ≈ 0.55em. Mały
+     zapas jest potrzebny, bo aplikacja nie ustala własnej czcionki;
+   - wysokość: wartość (F) + jednostka pod nią (0.38F) + etykieta, odstępy i
+     padding (~52px) muszą zmieścić się w kaflu — bez przewijania i bez
+     nachodzenia rzędów: F ≤ (H − 52px) / 1.38 ≈ 0.7 × (H − 52px);
+   - `--fit-cap`: wspólny limit dla całego ekranu (niżej), żeby szerokie kafle
+     (Sprężone powietrze, suma mocy) nie dostawały liczb 2-3× większych niż
+     wąskie kafle Chłodni obok.
+   Własności niezarejestrowane rozwijają się dopiero w miejscu użycia, więc
+   jednostki kontenera liczą się względem kafla, a nie jego rodzica. */
+.overview-fit-tile {
+  --fit-value: max(
+    14px,
+    min(
+      calc((100cqi - 20px) / (var(--value-chars, 4) * 0.56)),
+      calc((100cqh - 52px) * 0.7),
+      var(--fit-cap)
+    )
+  );
+  --fit-unit: max(11px, calc(var(--fit-value) * 0.38));
+}
+
+/* Odstęp między wierszami sekcji w `narrow:` (decyzja użytkownika,
+   październik 2026): wyraźna przerwa porządkuje ekran, a kafle nie wyglądają
+   na rozciągnięte na całą wysokość wiersza. Rośnie szybciej niż wysokość
+   okna (10vh − 40px): przy ~650px wysokości to ~25px, bo tam każdy piksel
+   idzie na kafle; przy ~940px ~55px; od ~1040px stałe 64px, żeby w wysokim
+   oknie nie wróciły puste pasy. */
+:root {
+  --overview-narrow-row-gap: clamp(16px, calc(10vh - 40px), 64px);
+}
+
+/* Wspólny limit liczony na sekcji, której kontenerem jest siatka przeglądu
+   (`narrow:[container-type:size]` na `overview-body-grid`): to rozmiar, jaki
+   zmieściłby się w najciaśniejszym kaflu ekranu — mniejszy z dwóch:
+   Chłodnia (3 kafle w lewej kolumnie `1fr 1.15fr`, budżet 4 znaków,
+   `COOLING_FIT_MIN_CHARS`) i trafostacja (3 kafle w prawej kolumnie, budżet
+   5 znaków, `POWER_FIT_MIN_CHARS`). Dzięki temu wszystkie kafle ekranu, łącznie
+   z szerokimi (Sprężone powietrze, suma mocy), mają liczby tej samej wielkości
+   (decyzja użytkownika, październik 2026). Dodatkowe 2px przy trafostacji:
+   bez nich na progu `xl` własny budżet jej kafla wychodził o ~0.7px mniejszy
+   niż limit i rozmiary liczb minimalnie się rozjeżdżały. Rejestracja jako
+   `<length>` jest konieczna: wartość liczy się wtedy NA SEKCJI (cqi/cqh =
+   siatka) i do kafli dziedziczy się gotowa liczba pikseli, a nie wyrażenie,
+   które w kaflu odnosiłoby się już do samego kafla. Stałe pikselowe to
+   przybliżone odstępy kolumn/kafli (32/24px — wartości z progu `xl`; na
+   `2xl` odstępy są większe, limit wychodzi wtedy o 2-3px za duży, co mieści
+   się w paddingu kafla) i wysokość nagłówka sekcji; `2.15` to suma proporcji
+   kolumn `1fr 1.15fr` (`BODY_GRID_TEMPLATE_COLUMNS` w OverviewView.tsx);
+   odstęp między wierszami to `--overview-narrow-row-gap` (wyżej).
+   `initial-value` w px, nie `7rem`: wartość początkowa zarejestrowanej
+   własności nie może zależeć od czcionki — z `rem` przeglądarka odrzuca całą
+   regułę `@property` i limit po cichu przestaje działać. */
+@property --fit-cap {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 112px;
+}
+
+.overview-fit-scope {
+  --fit-cap: max(
+    14px,
+    min(
+      calc((((100cqi - 32px) / 2.15 - 24px) / 3 - 20px) / 2.24),
+      calc((((100cqi - 32px) * 1.15 / 2.15 - 24px) / 3 - 22px) / 2.8),
+      calc(((100cqh - 2 * var(--overview-narrow-row-gap)) / 3 - 100px) * 0.7),
+      7rem
+    )
+  );
+}
+
+/* Logo rodziny Line (brand/LOGO-SPEC.md, §5) — kolory jako zmienne, żeby
+   inline SVG (`components/brand/Logo.tsx`) był sterowany z CSS. Tylko
+   wariant na jasne tło: aplikacja ma zawsze białe tło (`body`), więc reguły
+   `prefers-color-scheme: dark` ze specyfikacji zmieniłyby tekst logo na jasny
+   na białym tle. */
+.ln-logo {
+  --ink: #14171c;
+  --bezel: #8a9099;
+  --lens: var(--brand-lamp);
+}
+.ln-logo[data-product="lineflow"] {
+  --brand-lamp: #18b2a3;
+}
+.ln-logo .ln-glyphs {
+  fill: var(--ink);
+}
+.ln-logo .ln-bezel {
+  fill: none;
+  stroke: var(--bezel);
+}
+.ln-logo .ln-lens {
+  fill: var(--lens);
+}
+
+/* Easter egg: dwa czerwone mrugnięcia soczewki (`data-wink` ustawia Logo.tsx
+   na `WINK_DURATION_MS` — czasy muszą się zgadzać). Czerwień = token
+   `--state-alarm` ze specyfikacji (§4). Animuje się wyłącznie soczewka;
+   obudowa i tekst nigdy (§5). `step-end` — ostre przełączenie kolorów jak w
+   lampce; płynne przejście szło przez brudny brąz między turkusem a czerwienią.
+   Świadomy wyjątek od §11 (czerwień poza stanem `alarm`) — decyzja użytkownika. */
+.ln-logo {
+  --wink: #e5322d;
+}
+@keyframes ln-wink {
+  0%, 35%, 85%, 100% { fill: var(--lens); }
+  15%, 65% { fill: var(--wink); }
+}
+.ln-logo[data-wink] .ln-lens {
+  animation: ln-wink 1.6s step-end 1;
+}
+/* Selektor musi mieć co najmniej specyficzność reguły mrugania wyżej —
+   samo `.ln-logo .ln-lens` przegrywało i soczewka i tak robiła się czerwona. */
+@media (prefers-reduced-motion: reduce) {
+  .ln-logo[data-wink] .ln-lens {
+    animation: none;
+  }
+}

@@ -18,6 +18,16 @@ const config: Config = {
       // Dodane addytywnie — żadna istniejąca klasa nie używa `3xl:`.
       screens: {
         '3xl': '2200px',
+        // `narrow:` — okno o proporcjach 3:2 lub węższych, czyli przeglądarka
+        // ustawiona obok drugiego okna (np. ~940×940 na monitorze 1920).
+        // Celowo próg proporcji, a nie szerokości: kiosk 16:9 (1366/1920/2560),
+        // monitory 16:10 i pełne okno przeglądarki na nich go nie włączają,
+        // więc ich layout zostaje nietknięty. Włączają go natomiast monitory
+        // 4:3/5:4 (np. 1280×1024), pionowe i okno 16:9 z DevTools z boku. Musi być OSTATNI na liście: Tailwind emituje
+        // progi w tej kolejności, więc `narrow:` ląduje w CSS po `xl:`/`2xl:`/
+        // `3xl:` i przy tej samej specyficzności z nimi wygrywa (jako plugin
+        // `addVariant` lądował przed nimi i przegrywał).
+        narrow: { raw: '(max-aspect-ratio: 3/2)' },
       },
       colors: {
         background: "var(--background)",

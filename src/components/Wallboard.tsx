@@ -86,7 +86,7 @@ export function Wallboard() {
   // poniżej) jak i sr-only <h1> w JSX muszą pokazywać to samo. Osobne kopie
   // tego samego szablonu w dwóch miejscach rozjeżdżałyby się w edge case'ie
   // `activeDefinition === undefined` (code review po audycie dostępności).
-  const pageTitle = activeDefinition ? `DashboardApp — ${activeDefinition.name}` : 'DashboardApp';
+  const pageTitle = activeDefinition ? `LineFLOW — ${activeDefinition.name}` : 'LineFLOW';
 
   // Karta przeglądarki musi identyfikować aktywny widok (audyt dostępności,
   // ustalenie §2, WCAG 2.4.2) — metadane Next.js w layout.tsx są statyczne

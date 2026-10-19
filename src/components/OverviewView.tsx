@@ -5,11 +5,13 @@ import { Pin, Snowflake, Wind, Zap, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreasData } from '@/hooks/useAreasData';
 import { AlarmBar } from '@/components/AlarmBar';
+import { Logo } from '@/components/brand/Logo';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { OverviewTankTile } from '@/components/OverviewTankTile';
 import { COLOR_MAP, type MetricCardColor } from '@/components/MetricCard';
 import { AREAS, type AreaDefinition } from '@/lib/areas';
+import { fitValueChars } from '@/lib/overview-fit';
 import { computeTotalActivePowerKw } from '@/lib/overview-power-summary';
 import type { AreaSnapshot } from '@/lib/types';
 
@@ -20,7 +22,28 @@ const POWER_AREA = AREAS.find((area) => area.type === 'power')!;
 
 // Proporcje 2 kolumn z makiety (~46:54) — prawa kolumna (Sprężarkownia +
 // Energia) jest wyraźnie szersza niż lewa (Chłodnie), patrz decyzja #27.
+// Zmiana proporcji wymaga poprawki dzielnika `2.15` w `--fit-cap`
+// (globals.css) — liczy z niej szerokość kafla Chłodni w trybie `narrow:`.
 const BODY_GRID_TEMPLATE_COLUMNS = '1fr 1.15fr';
+
+// Tryb `narrow:` (okno obok drugiego okna, patrz tailwind.config.ts): siatka
+// dostaje 3 równe wiersze na całą wysokość, a sekcje i rzędy kafli się w nie
+// rozciągają — zamiast rzędów o wysokości treści rozepchniętych przez
+// `content-between` (puste pasy w wysokim oknie, nachodzenie w niskim).
+// Kafle mają wtedy wysokość z layoutu, a liczba skaluje się do kafla.
+// `overview-fit-scope` liczy wspólny limit rozmiaru liczby (globals.css).
+const NARROW_SECTION = 'overview-fit-scope narrow:flex narrow:flex-col';
+const NARROW_TILE_ROW = 'narrow:flex-1 narrow:min-h-0 narrow:grid-rows-[minmax(0,1fr)]';
+
+// Minimalne budżety znaków (`fitValueChars`) dla typowych odczytów sekcji:
+// "6.89" bar / "456.3" kW. Większa wartość tylko zmniejsza czcionkę rzędu.
+const COOLING_FIT_MIN_CHARS = 4;
+const COMPRESSOR_FIT_MIN_CHARS = 4;
+const POWER_FIT_MIN_CHARS = 5;
+const TOTAL_POWER_FIT_MIN_CHARS = 4;
+// Suma mocy wyświetlana bez miejsc po przecinku — ta sama wartość zasila
+// kafel i jego budżet znaków.
+const TOTAL_POWER_DECIMALS = 0;
 
 /**
  * Ekran domyślny pod `/` (decyzja #20, layout wg makiety z decyzji #27-30 —
@@ -33,6 +56,10 @@ const BODY_GRID_TEMPLATE_COLUMNS = '1fr 1.15fr';
  * (≥1280px) → `2xl:` (≥1536px, "tryb TV" wg DesignGuideline.md §3) — żeby
  * layout nie skakał od razu z rozmiaru bazowego do TV-rozmiaru na typowych
  * monitorach kioskowych pomiędzy tymi progami.
+ *
+ * Niezależnie od szerokości działa czwarty tryb, `narrow:` (okno o proporcjach
+ * węższych niż 3:2, np. przeglądarka obok drugiego okna): siatka 3 równych
+ * wierszy z odstępem i liczby skalowane do kafli — patrz `NARROW_SECTION`.
  */
 export function OverviewView() {
   const { areas, status, lastEventAt } = useAreasData();
@@ -45,19 +72,36 @@ export function OverviewView() {
          * własny pasek pod nagłówkiem z decyzji #37) — jeden rząd zamiast
          * dwóch oddaje więcej wysokości treści pod spodem. Separator w
          * pionie odróżnia tytuł od linków bez dodatkowego rzędu/obramowania. */}
-        <header className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 xl:gap-x-6 pb-4 xl:pb-5 2xl:pb-6 border-b border-slate-100">
-          <div className="flex items-center gap-4 xl:gap-5 2xl:gap-6 flex-wrap min-w-0">
-            <h1 className="shrink-0 text-xl xl:text-2xl 2xl:text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none">
-              Przegląd zakładu
-            </h1>
-            <div aria-hidden="true" className="hidden sm:block shrink-0 w-px h-5 xl:h-6 bg-slate-200" />
+        {/* `narrow:` (decyzja użytkownika, październik 2026): jeden rząd —
+         * logo, pigułki po jego prawej, LIVE w prawym rogu. Nic się nie
+         * zawija pod logo: gdy pigułki się nie mieszczą, zawijają się
+         * wewnątrz swojego obszaru (`flex-1 min-w-0`), a logo i LIVE zostają
+         * na miejscu — zamiast samotnego LIVE w osobnej, trzeciej linii.
+         * Ciaśniejsze odstępy, padding i rozstrzelenie liter pigułek
+         * (`narrow:gap-*`, `narrow:px-2`, `narrow:tracking-wider`) i brak
+         * separatora (logo samo oddziela nawigację) mieszczą wszystkie pięć
+         * w jednym rzędzie już w oknie ~940px, z zapasem na inną czcionkę. */}
+        <header className="shrink-0 flex flex-wrap narrow:flex-nowrap items-center gap-x-4 narrow:gap-x-3 gap-y-2 xl:gap-x-6 pb-4 xl:pb-5 2xl:pb-6 border-b border-slate-100">
+          <div className="flex items-center gap-4 xl:gap-5 2xl:gap-6 flex-wrap min-w-0 narrow:flex-1 narrow:flex-nowrap narrow:gap-3">
+            {/* Logo LineFLOW zamiast widocznego tytułu (decyzja użytkownika,
+             * październik 2026). `h-5 xl:h-6` — 20px to minimum wordmarku
+             * (brand/LOGO-SPEC.md §10). `my-1` daje 32px od progu `xl`, czyli
+             * wysokość linii dawnego tytułu (`text-2xl` niesie własny
+             * line-height) — nagłówek i siatka kiosku zostają co do piksela.
+             * Poniżej `xl` (28px) wysokość nagłówka i tak wyznacza wyższy
+             * znacznik LIVE (~29px); gdyby kiedyś zmalał poniżej 28px, nagłówek
+             * w wąskim oknie urośnie o kilka px. `h1` zostaje dla czytników
+             * ekranu i nawigacji po nagłówkach. */}
+            <Logo wink className="h-5 xl:h-6 my-1" />
+            <h1 className="sr-only">Przegląd zakładu</h1>
+            <div aria-hidden="true" className="hidden sm:block narrow:hidden shrink-0 w-px h-5 xl:h-6 bg-slate-200" />
             {/* Nawigacja skrótowa do widoku przypiętego per obszar (decyzja
              * #37). Prowadzi do `/?area=X`, które `useDisplayMode` rozwiązuje
              * do trybu 'pinned' (decyzja #25/#26) — istniejący mechanizm
              * routingu, żadna nowa logika nawigacji. */}
             <nav
               aria-label="Obszary zakładu"
-              className="flex flex-wrap items-center gap-2 xl:gap-2.5 2xl:gap-3"
+              className="flex flex-wrap items-center gap-2 xl:gap-2.5 2xl:gap-3 narrow:gap-1.5 narrow:flex-1 narrow:min-w-0"
             >
               {AREAS.map((area) => (
                 <Link
@@ -68,7 +112,7 @@ export function OverviewView() {
                   // wszystkich 5 tras na starcie to zbędny ruch sieciowy.
                   prefetch={false}
                   data-testid={`overview-area-pill-${area.id}`}
-                  className="bg-slate-50 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all duration-200 rounded-full px-3 py-1 xl:px-3.5 xl:py-1 2xl:px-4 2xl:py-1.5 text-[10px] xl:text-[11px] 2xl:text-xs font-black uppercase tracking-widest text-slate-600"
+                  className="bg-slate-50 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all duration-200 rounded-full px-3 py-1 xl:px-3.5 xl:py-1 2xl:px-4 2xl:py-1.5 narrow:px-2 text-[10px] xl:text-[11px] 2xl:text-xs font-black uppercase tracking-widest narrow:tracking-wider text-slate-600"
                 >
                   {/* Ikona sama nie niesie treści (aria-hidden, nie wchodzi do
                    * nazwy dostępnej linku) — sygnalizuje wyłącznie wizualnie,
@@ -76,13 +120,21 @@ export function OverviewView() {
                    * karuzeli, w odróżnieniu od chwilowych zakładek obszaru
                    * wewnątrz samej karuzeli (Wallboard.tsx), które rotację
                    * zachowują. */}
-                  <Pin aria-hidden="true" className="inline-block w-2.5 h-2.5 mr-1 text-slate-400" strokeWidth={2.5} />
+                  <Pin aria-hidden="true" className="inline-block w-2.5 h-2.5 mr-1 narrow:mr-0.5 text-slate-400" strokeWidth={2.5} />
                   {area.name}
                 </Link>
               ))}
             </nav>
           </div>
-          <ConnectionStatus status={status} lastEventAt={lastEventAt} className="ml-auto shrink-0" />
+          {/* `narrow:min-w-[7rem]`: stała szerokość niezależnie od stanu (LIVE
+           * 72px, OFFLINE 96px, ŁĄCZENIE 104px) — inaczej każda zmiana
+           * połączenia przerzucałaby pigułki do drugiej linii i cała siatka
+           * skakałaby o ~23px. */}
+          <ConnectionStatus
+            status={status}
+            lastEventAt={lastEventAt}
+            className="ml-auto shrink-0 narrow:min-w-[7rem] narrow:justify-center"
+          />
         </header>
 
         {/*
@@ -98,7 +150,7 @@ export function OverviewView() {
          */}
         <div
           data-testid="overview-body-grid"
-          className="flex-1 min-h-0 grid content-between gap-x-6 xl:gap-x-8 2xl:gap-x-10 gap-y-3 xl:gap-y-4 2xl:gap-y-6 pt-4 xl:pt-5 2xl:pt-6 overflow-hidden"
+          className="flex-1 min-h-0 grid content-between narrow:[container-type:size] narrow:grid-rows-[repeat(3,minmax(0,1fr))] narrow:gap-y-[var(--overview-narrow-row-gap)] gap-x-6 xl:gap-x-8 2xl:gap-x-10 gap-y-3 xl:gap-y-4 2xl:gap-y-6 pt-4 xl:pt-5 2xl:pt-6 overflow-hidden"
           style={{ gridTemplateColumns: BODY_GRID_TEMPLATE_COLUMNS }}
         >
           <CoolingRow definition={COOLING_AREA_1} snapshot={byId.get(COOLING_AREA_1.id)} />
@@ -160,6 +212,15 @@ function CoolingRow({
   const tempMetric = metrics.find((m) => m.unit === '°C');
   const pressureMetric = metrics.find((m) => m.unit === 'bar');
   const levelMetric = metrics.find((m) => m.unit === 'cm');
+  const fitChars = fitValueChars(
+    [
+      ...[tempMetric, pressureMetric].flatMap((m) => (m ? [{ value: m.value, decimals: m.decimals }] : [])),
+      // `OverviewTankTile` zaokrągla poziom do pełnych cm niezależnie od
+      // `decimals` z rejestru — budżet musi liczyć to, co faktycznie widać.
+      ...(levelMetric ? [{ value: levelMetric.value, decimals: 0 }] : []),
+    ],
+    COOLING_FIT_MIN_CHARS
+  );
 
   return (
     // `self-center` zamiast domyślnego `stretch`: w rzędzie 2 ta sekcja
@@ -170,11 +231,13 @@ function CoolingRow({
     // dzieli ten nadmiar po równo góra/dół, więc oba odstępy się wyrównują.
     // Dla rzędów 1 i 3, gdzie wysokości obu kolumn już się pokrywają, nie
     // ma to żadnego efektu wizualnego.
-    <section className="min-h-0 shrink-0 self-center">
+    // W `narrow:` wiersze są równe (Energia zajmuje dwa), więc wyśrodkowanie
+    // nie jest potrzebne — sekcja rozciąga się na cały swój wiersz.
+    <section className={cn('min-h-0 shrink-0 self-center narrow:self-stretch', NARROW_SECTION)}>
       <SectionHeading icon={Snowflake} color="slate">
         {definition.name}
       </SectionHeading>
-      <div className="grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4">
+      <div className={cn('grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4', NARROW_TILE_ROW)}>
         {tempMetric && (
           <OverviewMetricTile
             testId={`overview-metric-tile-${tempMetric.id}`}
@@ -184,6 +247,7 @@ function CoolingRow({
             decimals={tempMetric.decimals}
             alarm={tempMetric.alarm}
             offline={offline}
+            fitChars={fitChars}
           />
         )}
         {pressureMetric && (
@@ -195,6 +259,7 @@ function CoolingRow({
             decimals={pressureMetric.decimals}
             alarm={pressureMetric.alarm}
             offline={offline}
+            fitChars={fitChars}
           />
         )}
         {levelMetric && (
@@ -204,6 +269,7 @@ function CoolingRow({
             maxCm={definition.maxCm ?? 100}
             alarm={levelMetric.alarm}
             offline={offline}
+            fitChars={fitChars}
           />
         )}
       </div>
@@ -242,16 +308,17 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
   const metrics = (snapshot?.metrics ?? []).filter(
     (m) => m.unit !== '' && OVERVIEW_METRIC_SUFFIXES.some((s) => m.id.endsWith(s))
   );
+  const fitChars = fitValueChars(metrics, COMPRESSOR_FIT_MIN_CHARS);
 
   return (
-    <section className="min-h-0 shrink-0">
+    <section className={cn('min-h-0 shrink-0', NARROW_SECTION)}>
       {/* Makieta nazywa tę sekcję "Sprężone powietrze", mimo że rejestr (i
        * pasek nazw obszarów powyżej) używa "Sprężarkownia" — świadomie różne
        * etykiety w dwóch miejscach, zgodnie z decyzją #27/makietą. */}
       <SectionHeading icon={Wind} color="slate">
         Sprężone powietrze
       </SectionHeading>
-      <div className="grid grid-cols-2 gap-2 xl:gap-3 2xl:gap-4">
+      <div className={cn('grid grid-cols-2 gap-2 xl:gap-3 2xl:gap-4', NARROW_TILE_ROW)}>
         {metrics.map((metric) => (
           <OverviewMetricTile
             key={metric.id}
@@ -266,6 +333,7 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
             decimals={metric.decimals}
             alarm={metric.alarm}
             offline={metric.online === false}
+            fitChars={fitChars}
           />
         ))}
       </div>
@@ -288,37 +356,68 @@ function PowerSection({
   // alarmie, karta sumy też sygnalizuje problem (decyzja #16 rozciągnięta na
   // wartość pochodną, bo inaczej alarm w danych "znikałby" na tym kaflu).
   const anyActivePowerAlarm = activePowerMetrics.some((m) => m.alarm);
+  const fitChars = fitValueChars(activePowerMetrics, POWER_FIT_MIN_CHARS);
+  const totalFitChars = fitValueChars([{ value: totalKw, decimals: TOTAL_POWER_DECIMALS }], TOTAL_POWER_FIT_MIN_CHARS);
 
   return (
-    <section className="min-h-0 shrink-0">
-      <SectionHeading icon={Zap} color="slate">
-        {definition.name}
-      </SectionHeading>
-      <div className="grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4 mb-2 xl:mb-3 2xl:mb-4">
-        {activePowerMetrics.map((metric) => (
-          <OverviewMetricTile
-            key={metric.id}
-            testId={`overview-metric-tile-${metric.id}`}
-            label={metric.label.split(' — ')[0]}
-            value={metric.value}
-            unit={metric.unit}
-            decimals={metric.decimals}
-            alarm={metric.alarm}
-            offline={offline}
-          />
-        ))}
+    // `narrow:row-span-2`: Energia (dwa rzędy kafli) zajmuje wiersze 2–3 prawej
+    // kolumny, obok Chłodni 2 i 3 — prawa kolumna kończy się równo z lewą,
+    // zamiast zostawiać pustkę pod spodem. `grid-rows-[subgrid]` dzieli sekcję
+    // dokładnie na te same dwa wiersze (z tym samym odstępem), więc kafle
+    // trafostacji mają wysokość kafli Chłodni 2, a kafel sumy — Chłodni 3
+    // (decyzja użytkownika, październik 2026). Poza `narrow:` oba wrappery to
+    // zwykłe bloki i layout kiosku zostaje bez zmian.
+    <section className="overview-fit-scope min-h-0 shrink-0 narrow:grid narrow:grid-rows-[subgrid] narrow:row-span-2">
+      <div className={cn('min-h-0', NARROW_SECTION)}>
+        <SectionHeading icon={Zap} color="slate">
+          {definition.name}
+        </SectionHeading>
+        <div
+          className={cn(
+            'grid grid-cols-3 gap-2 xl:gap-3 2xl:gap-4 mb-2 xl:mb-3 2xl:mb-4 narrow:mb-0',
+            NARROW_TILE_ROW
+          )}
+        >
+          {activePowerMetrics.map((metric) => (
+            <OverviewMetricTile
+              key={metric.id}
+              testId={`overview-metric-tile-${metric.id}`}
+              label={metric.label.split(' — ')[0]}
+              value={metric.value}
+              unit={metric.unit}
+              decimals={metric.decimals}
+              alarm={metric.alarm}
+              offline={offline}
+              fitChars={fitChars}
+            />
+          ))}
+        </div>
       </div>
-      {snapshot && (
-        <OverviewMetricTile
-          testId="overview-metric-tile-total-active-power"
-          label="Sumaryczne zużycie"
-          value={totalKw}
-          unit="kW"
-          decimals={0}
-          alarm={anyActivePowerAlarm}
-          offline={offline}
-        />
-      )}
+      <div className={cn('min-h-0', NARROW_SECTION)}>
+        {/* Niewidoczny odpowiednik nagłówka sekcji tylko w `narrow:`: Chłodnia 3
+         * obok ma nad kaflami własny nagłówek, więc bez tej rezerwy kafel sumy
+         * zaczynałby się wyżej i był wyższy niż jej kafle. Ten sam komponent
+         * co prawdziwy nagłówek = identyczna wysokość na każdym progu.
+         * `aria-hidden` + `invisible` — czytnik ekranu nie widzi duplikatu. */}
+        <div aria-hidden="true" className="hidden narrow:block invisible">
+          <SectionHeading icon={Zap} color="slate">
+            {definition.name}
+          </SectionHeading>
+        </div>
+        {snapshot && (
+          <OverviewMetricTile
+            testId="overview-metric-tile-total-active-power"
+            label="Sumaryczne zużycie"
+            value={totalKw}
+            unit="kW"
+            decimals={TOTAL_POWER_DECIMALS}
+            alarm={anyActivePowerAlarm}
+            offline={offline}
+            fitChars={totalFitChars}
+            className="narrow:flex-1 narrow:min-h-0"
+          />
+        )}
+      </div>
     </section>
   );
 }

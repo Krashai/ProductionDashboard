@@ -131,4 +131,19 @@ describe('OverviewTankTile', () => {
     expect(valueEl.className).toMatch(/text-6xl/);
     expect(valueEl.className).not.toMatch(/text-4xl/);
   });
+
+  // Patrz OverviewMetricTile.test.tsx — tryb `narrow:` jest opt-in.
+  test('bez fitChars kafel nie dostaje stylu ani żadnej klasy narrow:', () => {
+    const { container } = render(<OverviewTankTile valueCm={95} maxCm={110} />);
+    expect((container.firstElementChild as HTMLElement).getAttribute('style')).toBeNull();
+    expect(container.innerHTML).not.toMatch(/narrow:|overview-fit-tile/);
+  });
+
+  test('z fitChars ustawia budżet znaków i skaluje wartość', () => {
+    const { container } = render(<OverviewTankTile valueCm={95} maxCm={110} fitChars={4} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.getPropertyValue('--value-chars')).toBe('4');
+    expect(root).toHaveClass('overview-fit-tile');
+    expect(screen.getByText('95')).toHaveClass('narrow:[font-size:var(--fit-value)]');
+  });
 });
