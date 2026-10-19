@@ -3,7 +3,7 @@ import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { deriveDeviceGroupStatuses } from '@/lib/device-status';
 import { cn, stripSectionPrefix } from '@/lib/utils';
 import type { AreaDefinition } from '@/lib/areas';
-import type { AreaSnapshot } from '@/lib/types';
+import type { AreaSnapshot, Metric } from '@/lib/types';
 
 interface CompressorAreaViewProps {
   area: AreaSnapshot;
@@ -61,19 +61,49 @@ const SECTION_GRID_CLASSES: Record<number, string> = {
  * celowo brak tu banera "wyłączona"/`deriveCoolingOperationalState`, bo
  * warunek dotyczy tylko pomp obiegowych chłodni, nie sprężarek.
  */
+/**
+ * Offline dla JEDNEJ sekcji (jednego fizycznego PLC), nie całego obszaru.
+ * `area.isOnline` to AND obu sterowników Sprężarkowni (MA_M3 → Magazyn
+ * Aluminium, MB_M2 → Magazyn Bębnów — patrz `build_area_payload` w
+ * backendzie), więc do tej pory awaria JEDNEGO sterownika gasiła OBIE
+ * sekcje, mimo że druga miała żywe dane (zgłoszenie użytkownika, wrzesień
+ * 2026). Backend znaczy teraz każdą metrykę własnym `online`, wziętym z
+ * PLC TEJ konkretnej metryki, więc sekcja jest offline tylko wtedy, gdy
+ * WSZYSTKIE jej metryki mówią to samo. `undefined` (tryb mock/demo, gdzie
+ * to pole nigdy nie jest ustawiane) liczy się jako "online" — nie gasimy
+ * ekranu tam, gdzie tego sygnału w ogóle nie ma.
+ */
+function isSectionOffline(metricIds: string[], metrics: Metric[]): boolean {
+  return metricIds.every((id) => metrics.find((m) => m.id === id)?.online === false);
+}
+
 export function CompressorAreaView({ area, definition }: CompressorAreaViewProps) {
-  const offline = !area.isOnline;
-
-  const groupStatuses = deriveDeviceGroupStatuses(definition.deviceGroups, area.metrics, offline);
-  const aluminiumGroup = groupStatuses.find((g) => g.id === ALUMINIUM_GROUP_ID);
-  const bebnyGroup = groupStatuses.find((g) => g.id === BEBNY_GROUP_ID);
-
   const aluminiumMetricIds = [`${definition.id}-magazyn-aluminium-cisnienie-zbiornik`];
   const bebnyMetricIds = [
     `${definition.id}-magazyn-bebnow-cisnienie-zbiornik`,
     `${definition.id}-magazyn-bebnow-cisnienie-kolektor`,
     `${definition.id}-magazyn-bebnow-przeplyw-powietrza`,
   ];
+
+  const aluminiumOffline = isSectionOffline(aluminiumMetricIds, area.metrics);
+  const bebnyOffline = isSectionOffline(bebnyMetricIds, area.metrics);
+
+  // Grupy urządzeń liczone OSOBNO na sekcję (nie jednym wspólnym wywołaniem
+  // dla `definition.deviceGroups` w całości) — inaczej obie sekcje znów
+  // dostałyby tę samą flagę `offline`, tym razem przekazaną do
+  // `deriveDeviceGroupStatuses` zamiast do samego JSX.
+  const aluminiumGroupDef = definition.deviceGroups?.find((g) => g.id === ALUMINIUM_GROUP_ID);
+  const bebnyGroupDef = definition.deviceGroups?.find((g) => g.id === BEBNY_GROUP_ID);
+  const aluminiumGroup = deriveDeviceGroupStatuses(
+    aluminiumGroupDef ? [aluminiumGroupDef] : undefined,
+    area.metrics,
+    aluminiumOffline
+  )[0];
+  const bebnyGroup = deriveDeviceGroupStatuses(
+    bebnyGroupDef ? [bebnyGroupDef] : undefined,
+    area.metrics,
+    bebnyOffline
+  )[0];
 
   return (
     // Kolumny ważone treścią zamiast `grid-cols-2` — patrz `ALUMINIUM_WEIGHT`.
@@ -85,7 +115,7 @@ export function CompressorAreaView({ area, definition }: CompressorAreaViewProps
         metricIds={aluminiumMetricIds}
         columns={ALUMINIUM_WEIGHT}
         area={area}
-        offline={offline}
+        offline={aluminiumOffline}
       />
       <CompressorSection
         groupId={BEBNY_GROUP_ID}
@@ -94,7 +124,7 @@ export function CompressorAreaView({ area, definition }: CompressorAreaViewProps
         metricIds={bebnyMetricIds}
         columns={BEBNY_WEIGHT}
         area={area}
-        offline={offline}
+        offline={bebnyOffline}
       />
     </div>
   );

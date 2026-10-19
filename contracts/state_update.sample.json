@@ -13,7 +13,8 @@
      "decimals": 1,
      "value": 9.5,
      "alarm": true,
-     "alarm_description": "Poza zakresem (2.0-8.0)"
+     "alarm_description": "Poza zakresem (2.0-8.0)",
+     "online": true
     },
     "chlodnia-1-pressure": {
      "label": "Ciśnienie wody na halę",
@@ -21,7 +22,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-level": {
      "label": "Poziom wody w zbiorniku",
@@ -29,7 +31,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-v101-praca": {
      "label": "V101 — Praca",
@@ -37,7 +40,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-v101-awaria": {
      "label": "V101 — Awaria",
@@ -45,7 +49,8 @@
      "decimals": 0,
      "value": 0,
      "alarm": true,
-     "alarm_description": "Brak sygnału gotowości"
+     "alarm_description": "Brak sygnału gotowości",
+     "online": true
     },
     "chlodnia-1-v201-praca": {
      "label": "V201 — Praca",
@@ -53,7 +58,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-v201-awaria": {
      "label": "V201 — Awaria",
@@ -61,7 +67,8 @@
      "decimals": 0,
      "value": 1,
      "alarm": true,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": true
     },
     "chlodnia-1-kwr125a-praca": {
      "label": "KWR125A — Praca",
@@ -69,7 +76,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-kwr125a-awaria": {
      "label": "KWR125A — Awaria",
@@ -77,7 +85,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-kwr125b-praca": {
      "label": "KWR125B — Praca",
@@ -85,7 +94,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-kwr125b-awaria": {
      "label": "KWR125B — Awaria",
@@ -93,7 +103,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-1-praca": {
      "label": "Pompa 1 — Praca",
@@ -101,7 +112,8 @@
      "decimals": 0,
      "value": 1,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": true
     },
     "chlodnia-1-pompa-1-awaria": {
      "label": "Pompa 1 — Awaria",
@@ -109,7 +121,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-1-hz": {
      "label": "Pompa 1 — Częstotliwość",
@@ -117,7 +130,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-2-praca": {
      "label": "Pompa 2 — Praca",
@@ -125,7 +139,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-2-awaria": {
      "label": "Pompa 2 — Awaria",
@@ -133,7 +148,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-3-praca": {
      "label": "Pompa 3 — Praca",
@@ -141,7 +157,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-3-awaria": {
      "label": "Pompa 3 — Awaria",
@@ -149,7 +166,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-4-praca": {
      "label": "Pompa 4 — Praca",
@@ -157,7 +175,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-4-awaria": {
      "label": "Pompa 4 — Awaria",
@@ -165,7 +184,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-5-praca": {
      "label": "Pompa 5 — Praca",
@@ -173,7 +193,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-1-pompa-5-awaria": {
      "label": "Pompa 5 — Awaria",
@@ -181,7 +202,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     }
    },
    "alarms": [
@@ -226,7 +248,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pressure": {
      "label": "Ciśnienie wody na halę",
@@ -234,7 +257,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-level": {
      "label": "Poziom wody w zbiorniku",
@@ -242,7 +266,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-v301a-praca": {
      "label": "V301A — Praca",
@@ -250,7 +275,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-v301a-awaria": {
      "label": "V301A — Awaria",
@@ -258,7 +284,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-v301b-praca": {
      "label": "V301B — Praca",
@@ -266,7 +293,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-v301b-awaria": {
      "label": "V301B — Awaria",
@@ -274,7 +302,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-1-praca": {
      "label": "Pompa 1 — Praca",
@@ -282,7 +311,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-1-awaria": {
      "label": "Pompa 1 — Awaria",
@@ -290,7 +320,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-1-hz": {
      "label": "Pompa 1 — Częstotliwość",
@@ -298,7 +329,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-2-praca": {
      "label": "Pompa 2 — Praca",
@@ -306,7 +338,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-2-awaria": {
      "label": "Pompa 2 — Awaria",
@@ -314,7 +347,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-3-praca": {
      "label": "Pompa 3 — Praca",
@@ -322,7 +356,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-3-awaria": {
      "label": "Pompa 3 — Awaria",
@@ -330,7 +365,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-4-praca": {
      "label": "Pompa 4 — Praca",
@@ -338,7 +374,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-2-pompa-4-awaria": {
      "label": "Pompa 4 — Awaria",
@@ -346,7 +383,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     }
    },
    "alarms": []
@@ -362,7 +400,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-pressure": {
      "label": "Ciśnienie wody na halę",
@@ -370,7 +409,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-level": {
      "label": "Poziom wody w zbiorniku",
@@ -378,7 +418,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-darpin-praca": {
      "label": "Darpin — Praca",
@@ -386,7 +427,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-darpin-poziom": {
      "label": "Darpin — Poziom pracy",
@@ -394,7 +436,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-rhoss-praca": {
      "label": "Rhoss — Praca",
@@ -402,7 +445,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-rhoss-awaria-1": {
      "label": "Rhoss — Alarm sterowania",
@@ -410,7 +454,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-rhoss-awaria-2": {
      "label": "Rhoss — Alarm pompy",
@@ -418,7 +463,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-pompa-1-praca": {
      "label": "Pompa 1 — Praca",
@@ -426,7 +472,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-pompa-1-awaria": {
      "label": "Pompa 1 — Awaria",
@@ -434,7 +481,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "chlodnia-3-pompa-1-hz": {
      "label": "Pompa 1 — Częstotliwość",
@@ -442,7 +490,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     }
    },
    "alarms": []
@@ -458,7 +507,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-aluminium-1-awaria": {
      "label": "Sprężarka 1 — Awaria",
@@ -466,7 +516,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-aluminium-2-praca": {
      "label": "Sprężarka 2 — Praca",
@@ -474,7 +525,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-aluminium-2-awaria": {
      "label": "Sprężarka 2 — Awaria",
@@ -482,7 +534,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-bebny-1-praca": {
      "label": "Sprężarka 1 — Praca",
@@ -490,7 +543,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-bebny-1-awaria": {
      "label": "Sprężarka 1 — Awaria",
@@ -498,7 +552,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-bebny-2-praca": {
      "label": "Sprężarka 2 — Praca",
@@ -506,7 +561,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-bebny-2-awaria": {
      "label": "Sprężarka 2 — Awaria",
@@ -514,7 +570,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-magazyn-aluminium-cisnienie-zbiornik": {
      "label": "Magazyn Aluminium — Ciśnienie zbiornik",
@@ -522,7 +579,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-magazyn-bebnow-cisnienie-zbiornik": {
      "label": "Magazyn Bębnów — Ciśnienie zbiornik",
@@ -530,7 +588,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-magazyn-bebnow-cisnienie-kolektor": {
      "label": "Magazyn Bębnów — Ciśnienie kolektor",
@@ -538,7 +597,8 @@
      "decimals": 2,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "sprezarkownia-magazyn-bebnow-przeplyw-powietrza": {
      "label": "Magazyn Bębnów — Przepływ powietrza",
@@ -546,7 +606,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     }
    },
    "alarms": []
@@ -562,7 +623,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-l2n": {
      "label": "Trafostacja 1 — L2N",
@@ -570,7 +632,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-l3n": {
      "label": "Trafostacja 1 — L3N",
@@ -578,7 +641,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-prad-l1": {
      "label": "Trafostacja 1 — L1 (prąd)",
@@ -586,7 +650,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-prad-l2": {
      "label": "Trafostacja 1 — L2 (prąd)",
@@ -594,7 +659,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-prad-l3": {
      "label": "Trafostacja 1 — L3 (prąd)",
@@ -602,7 +668,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-active": {
      "label": "Trafostacja 1 — Moc czynna",
@@ -610,7 +677,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-reactive": {
      "label": "Trafostacja 1 — Moc bierna",
@@ -618,7 +686,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-apparent": {
      "label": "Trafostacja 1 — Moc pozorna",
@@ -626,7 +695,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-temperatura": {
      "label": "Trafostacja 1 — Temperatura",
@@ -634,7 +704,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-thdi": {
      "label": "Trafostacja 1 — THDi",
@@ -642,7 +713,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-1-thdu": {
      "label": "Trafostacja 1 — THDu",
@@ -650,7 +722,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-l1n": {
      "label": "Trafostacja 2 — L1N",
@@ -658,7 +731,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-l2n": {
      "label": "Trafostacja 2 — L2N",
@@ -666,7 +740,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-l3n": {
      "label": "Trafostacja 2 — L3N",
@@ -674,7 +749,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-prad-l1": {
      "label": "Trafostacja 2 — L1 (prąd)",
@@ -682,7 +758,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-prad-l2": {
      "label": "Trafostacja 2 — L2 (prąd)",
@@ -690,7 +767,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-prad-l3": {
      "label": "Trafostacja 2 — L3 (prąd)",
@@ -698,7 +776,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-active": {
      "label": "Trafostacja 2 — Moc czynna",
@@ -706,7 +785,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-reactive": {
      "label": "Trafostacja 2 — Moc bierna",
@@ -714,7 +794,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-apparent": {
      "label": "Trafostacja 2 — Moc pozorna",
@@ -722,7 +803,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-temperatura": {
      "label": "Trafostacja 2 — Temperatura",
@@ -730,7 +812,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-thdi": {
      "label": "Trafostacja 2 — THDi",
@@ -738,7 +821,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-2-thdu": {
      "label": "Trafostacja 2 — THDu",
@@ -746,7 +830,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-l1n": {
      "label": "Trafostacja 3 — L1N",
@@ -754,7 +839,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-l2n": {
      "label": "Trafostacja 3 — L2N",
@@ -762,7 +848,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-l3n": {
      "label": "Trafostacja 3 — L3N",
@@ -770,7 +857,8 @@
      "decimals": 0,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-prad-l1": {
      "label": "Trafostacja 3 — L1 (prąd)",
@@ -778,7 +866,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-prad-l2": {
      "label": "Trafostacja 3 — L2 (prąd)",
@@ -786,7 +875,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-prad-l3": {
      "label": "Trafostacja 3 — L3 (prąd)",
@@ -794,7 +884,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-active": {
      "label": "Trafostacja 3 — Moc czynna",
@@ -802,7 +893,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-reactive": {
      "label": "Trafostacja 3 — Moc bierna",
@@ -810,7 +902,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-apparent": {
      "label": "Trafostacja 3 — Moc pozorna",
@@ -818,7 +911,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-temperatura": {
      "label": "Trafostacja 3 — Temperatura",
@@ -826,7 +920,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-thdi": {
      "label": "Trafostacja 3 — THDi",
@@ -834,7 +929,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     },
     "trafostacja-3-thdu": {
      "label": "Trafostacja 3 — THDu",
@@ -842,7 +938,8 @@
      "decimals": 1,
      "value": null,
      "alarm": false,
-     "alarm_description": null
+     "alarm_description": null,
+     "online": false
     }
    },
    "alarms": []

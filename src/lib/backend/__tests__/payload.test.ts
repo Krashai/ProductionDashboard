@@ -9,6 +9,7 @@ function validMetric(): BackendMetric {
     value: 4.2,
     alarm: false,
     alarm_description: null,
+    online: true,
   };
 }
 
@@ -135,12 +136,14 @@ describe('isBackendMetric', () => {
     expect(isBackendMetric({ ...validMetric(), value: 'chlodnia-1' })).toBe(false);
   });
 
-  test('odrzuca niepoprawny typ pola (label/unit/decimals/alarm/alarm_description)', () => {
+  test('odrzuca niepoprawny typ pola (label/unit/decimals/alarm/alarm_description/online)', () => {
     expect(isBackendMetric({ ...validMetric(), label: 1 })).toBe(false);
     expect(isBackendMetric({ ...validMetric(), unit: 1 })).toBe(false);
     expect(isBackendMetric({ ...validMetric(), decimals: '1' })).toBe(false);
     expect(isBackendMetric({ ...validMetric(), alarm: 'yes' })).toBe(false);
     expect(isBackendMetric({ ...validMetric(), alarm_description: 1 })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), online: 'yes' })).toBe(false);
+    expect(isBackendMetric({ ...validMetric(), online: undefined })).toBe(false);
   });
 
   test('odrzuca null / prymitywy', () => {

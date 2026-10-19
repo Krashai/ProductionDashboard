@@ -30,6 +30,7 @@ def test_area_with_no_plc_is_offline_with_no_metric_values():
     assert temp["alarm_description"] is None
     assert temp["unit"] == "°C"
     assert temp["label"] == "Temperatura wody na halę"
+    assert temp["online"] is False
 
 
 def test_online_plc_value_flows_through_to_metric():
@@ -54,6 +55,7 @@ def test_online_plc_value_flows_through_to_metric():
     assert chlodnia1["online"] is True
     assert chlodnia1["metrics"]["chlodnia-1-temp"]["value"] == 4.7
     assert chlodnia1["metrics"]["chlodnia-1-temp"]["alarm"] is False
+    assert chlodnia1["metrics"]["chlodnia-1-temp"]["online"] is True
 
 
 def test_area_online_requires_all_contributing_plcs_online():
@@ -70,6 +72,62 @@ def test_area_online_requires_all_contributing_plcs_online():
     )
     power = next(a for a in payload if a["area_id"] == "energia-elektryczna")
     assert power["online"] is False
+
+
+def test_metric_online_reflects_its_own_plc_not_the_wider_area():
+    """Regression test (wrzesień 2026, user report): Sprężarkownia has TWO
+    physical PLCs feeding one area — PLC_sprezarkiMA_M3 (Magazyn Aluminium)
+    and PLC_sprezarkiMB_M2 (Magazyn Bębnów). When MA_M3 drops off the
+    network, `area["online"]` correctly goes False (it's an AND across
+    both PLCs — see test_area_online_requires_all_contributing_plcs_online
+    above), but each METRIC's own `online` flag must stay keyed to the tag's
+    OWN plc_id, so CompressorAreaView.tsx can keep showing Magazyn Bębnów's
+    still-live pressure readings instead of blanking both sections just
+    because one PLC is down.
+    """
+    plcs = [
+        {"id": 6, "area_id": "sprezarkownia"},  # MA_M3 — offline
+        {"id": 7, "area_id": "sprezarkownia"},  # MB_M2 — online
+    ]
+    tags = [
+        {
+            "id": 60,
+            "plc_id": 6,
+            "name": "Cisnienie_Aluminium",
+            "metric_id": "sprezarkownia-magazyn-aluminium-cisnienie-zbiornik",
+            "label": "Magazyn Aluminium — Ciśnienie zbiornik",
+            "unit": "bar",
+            "decimals": 2,
+        },
+        {
+            "id": 70,
+            "plc_id": 7,
+            "name": "Cisnienie_Bebny",
+            "metric_id": "sprezarkownia-magazyn-bebnow-cisnienie-zbiornik",
+            "label": "Magazyn Bębnów — Ciśnienie zbiornik",
+            "unit": "bar",
+            "decimals": 2,
+        },
+    ]
+    live_snapshot = {
+        6: {"online": False, "tag_values": {}, "error": "connect_failed"},
+        7: {"online": True, "tag_values": {"Cisnienie_Bebny": 7.1}, "error": None},
+    }
+
+    payload = build_area_payload(
+        plcs=plcs, tags=tags, threshold_rules=[], bit_alarm_rules=[], live_snapshot=live_snapshot
+    )
+    sprezarkownia = next(a for a in payload if a["area_id"] == "sprezarkownia")
+
+    assert sprezarkownia["online"] is False  # AND across both PLCs, unchanged
+
+    aluminium = sprezarkownia["metrics"]["sprezarkownia-magazyn-aluminium-cisnienie-zbiornik"]
+    assert aluminium["online"] is False
+    assert aluminium["value"] is None
+
+    bebny = sprezarkownia["metrics"]["sprezarkownia-magazyn-bebnow-cisnienie-zbiornik"]
+    assert bebny["online"] is True
+    assert bebny["value"] == 7.1
 
 
 def test_threshold_rule_triggers_alarm_when_value_out_of_range():

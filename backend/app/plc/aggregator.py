@@ -237,7 +237,16 @@ def build_area_payload(
             value = None
             alarm = False
             alarm_description: str | None = None
+            # Per-metric online state, sourced from THIS metric's own tag's
+            # PLC — deliberately independent of `area_online` below. An area
+            # can straddle two physical PLCs (Sprężarkownia: MA_M3 + MB_M2,
+            # each its own device group/UI section); one going dark must not
+            # blank the other's still-live readings on the wallboard. See
+            # CompressorAreaView.tsx, which keys each section's offline
+            # styling off this field instead of the area-wide flag.
+            online = False
             if tag is not None:
+                online = bool(live_snapshot.get(tag["plc_id"], {}).get("online", False))
                 value = _scale_metric_value(metric_id, _tag_value(tag, live_snapshot))
                 alarm, alarm_description = _tag_alarm(tag)
 
@@ -248,6 +257,7 @@ def build_area_payload(
                 "value": value,
                 "alarm": alarm,
                 "alarm_description": alarm_description,
+                "online": online,
             }
 
         # `alarms` is the free-form alarm bar (decision #7): every tag

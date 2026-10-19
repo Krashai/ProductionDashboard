@@ -212,7 +212,13 @@ function CoolingRow({
 }
 
 function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined }) {
-  const offline = snapshot ? !snapshot.isOnline : false;
+  // NIE `!snapshot.isOnline` (AND obu fizycznych PLC Sprężarkowni — MA_M3
+  // dla Magazynu Aluminium, MB_M2 dla Magazynu Bębnów, patrz
+  // `build_area_payload` w backendzie): to gasiło OBIE karty razem, gdy
+  // padał TYLKO JEDEN sterownik (zgłoszenie użytkownika, wrzesień 2026 —
+  // ten sam defekt co w CompressorAreaView.tsx, tu na ekranie głównym).
+  // Każda metryka niesie teraz WŁASNY `online` z jej własnego PLC.
+  //
   // Sierpień 2026: Sprężarkownia dostała kafle urządzeń (PRACA/AWARIA per
   // sprężarka, unit="") obok swoich metryk analogowych (ciśnienie/przepływ),
   // ten sam wzorzec co Chłodnia 1/2/3 (`src/lib/areas.ts`). Overview pokazuje
@@ -259,7 +265,7 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
             unit={metric.unit}
             decimals={metric.decimals}
             alarm={metric.alarm}
-            offline={offline}
+            offline={metric.online === false}
           />
         ))}
       </div>

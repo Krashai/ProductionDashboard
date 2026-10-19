@@ -29,6 +29,10 @@ export interface BackendMetric {
   value: number | null;
   alarm: boolean;
   alarm_description: string | null;
+  /** Per-metric online state from THIS metric's own tag's PLC — see
+   * app.plc.aggregator.build_area_payload. Independent of `BackendArea.online`
+   * (an AND across every PLC feeding the area). */
+  online: boolean;
 }
 
 export interface BackendArea {
@@ -109,6 +113,7 @@ export function metricDefect(value: unknown): string | null {
   if (value.alarm_description !== null && typeof value.alarm_description !== 'string') {
     return `alarm_description: ${typeof value.alarm_description}`;
   }
+  if (typeof value.online !== 'boolean') return `online: ${typeof value.online}`;
   return null;
 }
 

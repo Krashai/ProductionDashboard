@@ -165,8 +165,10 @@ describe('DeviceStatusTile', () => {
     });
   });
   // Sprężarkownia stawia w rzędzie tylko dwa urządzenia (Chłodnia do pięciu),
-  // więc kafel dostaje tam własny, większy rozmiar. Domyślny MUSI zostać
-  // nietknięty — budżet szerokości rzędu 5 pomp jest policzony co do piksela.
+  // więc kafel dostaje tam własny, większy rozmiar. `size="default"` bez
+  // `fillRow` zachowuje stałą szerokość dla wierszy, które zawsze mają 2
+  // urządzenia (Sprężarki/Agregaty) — `fillRow` (patrz opis niżej) jest dla
+  // wierszy o zmiennej/większej liczbie kafli (Pompy obiegowe).
   describe('size', () => {
     test('domyślnie (brak propa) kafel ma stałą szerokość rzędu Chłodni', () => {
       const { container } = render(<DeviceStatusTile label="V101" running={false} fault={false} />);
@@ -199,6 +201,83 @@ describe('DeviceStatusTile', () => {
       expect(getByTestId('device-fault-dot').className).toMatch(/animate-alarm-flash/);
       expect(getByTestId('device-accent-bar').className).toMatch(/bg-rose-500/);
       expect(getByTestId('device-fault-status')).toHaveTextContent('Awaria: tak');
+    });
+  });
+
+  // Regresja zgłoszenia użytkownika (wrzesień 2026): rząd 5 pomp Chłodni 1
+  // ze stałą szerokością kafla miał zerowy margines na zmieszczenie się w
+  // jednej linii i przy węższym oknie zawijał się — piąty kafel znikał pod
+  // `overflow-hidden` na `<main>`. `fillRow` oddaje szerokość rodzicowi
+  // (CSS grid w CoolingAreaView.tsx), gwarantując jeden wiersz niezależnie
+  // od liczby kafli — bez zmiany rozmiaru czcionki/kropek jak `size="lg"`.
+  describe('fillRow', () => {
+    test('domyślnie (fillRow=false) kafel ma stałą szerokość — bez zmian', () => {
+      const { container } = render(<DeviceStatusTile label="Pompa 1" running={false} fault={false} />);
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.className).toMatch(/(^|\s)w-32(\s|$)/);
+      expect(root.className).toMatch(/(^|\s)2xl:w-56(\s|$)/);
+    });
+
+    test('fillRow=true usuwa stałą szerokość, jak size="lg", ale BEZ powiększania czcionki/kropek', () => {
+      const { container, getByTestId } = render(
+        <DeviceStatusTile label="Pompa 1" running={false} fault={false} fillRow />
+      );
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.className).not.toMatch(/(^|\s)w-32(\s|$)/);
+      expect(root.className).not.toMatch(/(^|\s)xl:w-36(\s|$)/);
+      expect(root.className).not.toMatch(/(^|\s)2xl:w-56(\s|$)/);
+      // Rozmiar kropek/czcionki zostaje 'default' (małe kafle Chłodni), nie
+      // urośnie jak przy size="lg" (Sprężarkownia).
+      expect(getByTestId('device-running-dot').className).toMatch(/(^|\s)2xl:w-8(\s|$)/);
+    });
+
+    test('fillRow=true na size="lg" nic nie zmienia (size="lg" już nie ustawia szerokości)', () => {
+      const { container } = render(
+        <DeviceStatusTile label="Pompa 1" running={false} fault={false} size="lg" fillRow />
+      );
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.className).not.toMatch(/(^|\s)w-32(\s|$)/);
+      expect(root.className).not.toMatch(/(^|\s)2xl:w-56(\s|$)/);
+    });
+
+    // Regresja zgłoszenia użytkownika (drugi etap, wrzesień 2026): "napisy są
+    // ucięte" po ściśnięciu STAŁEJ szerokości dwóch kolumn PRACA/AWARIA do
+    // 1/5 kolumny gridu. Fix: PRACA/AWARIA jedna pod drugą zamiast obok
+    // siebie — wymaga szerokości jednej kolumny, nie dwóch.
+    test('fillRow=true: PRACA i AWARIA stoją jedna pod drugą, bez separatora między kolumnami', () => {
+      const { getByTestId, container } = render(
+        <DeviceStatusTile label="Pompa 1" running={true} fault={false} fillRow />
+      );
+      const runningDot = getByTestId('device-running-dot');
+      const faultDot = getByTestId('device-fault-dot');
+      // Oba kafle-dzieci (kropka+podpis) są rodzeństwem TEGO SAMEGO
+      // kontenera pionowego (`flex-col`), a nie dwiema stałej-szerokości
+      // kolumnami rozdzielonymi separatorem.
+      const stateContainer = runningDot.parentElement!.parentElement as HTMLElement;
+      expect(stateContainer.className).toMatch(/(^|\s)flex-col(\s|$)/);
+      expect(stateContainer.contains(faultDot)).toBe(true);
+      expect(container.querySelector('.self-stretch.w-px')).not.toBeInTheDocument();
+    });
+
+    test('fillRow=false (domyślnie): PRACA i AWARIA stoją obok siebie z separatorem', () => {
+      const { container } = render(<DeviceStatusTile label="V101" running={true} fault={false} />);
+      expect(container.querySelector('.self-stretch.w-px')).toBeInTheDocument();
+    });
+
+    test('fillRow=true zmniejsza czcionkę wartości dodatkowej (Hz), względem domyślnego 2xl:text-4xl', () => {
+      const { getByTestId } = render(
+        <DeviceStatusTile
+          label="Pompa 1"
+          running={true}
+          fault={false}
+          secondaryValue={42.5}
+          secondaryUnit="Hz"
+          fillRow
+        />
+      );
+      const value = getByTestId('device-secondary-row').querySelector('.font-mono') as HTMLElement;
+      expect(value.className).not.toMatch(/2xl:text-4xl/);
+      expect(value.className).toMatch(/2xl:text-xl/);
     });
   });
 });

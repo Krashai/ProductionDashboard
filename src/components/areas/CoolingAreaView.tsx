@@ -1,7 +1,7 @@
 import { DeviceStatusTile } from '@/components/DeviceStatusTile';
 import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { OverviewTankTile } from '@/components/OverviewTankTile';
-import { deriveDeviceGroupStatuses, isCoolingShutdown } from '@/lib/device-status';
+import { PUMP_GROUP_ID, deriveDeviceGroupStatuses, isCoolingShutdown } from '@/lib/device-status';
 import { cn } from '@/lib/utils';
 import type { AreaDefinition } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
@@ -10,6 +10,19 @@ interface CoolingAreaViewProps {
   area: AreaSnapshot;
   definition: AreaDefinition;
 }
+
+// Tailwind skanuje źródła statycznie — klasy muszą istnieć dosłownie (ten
+// sam wzorzec co `SECTION_GRID_CLASSES` w CompressorAreaView.tsx). Liczba
+// pomp obiegowych różni się per chłodnia — 1 (Chłodnia 3), 4 (Chłodnia 2),
+// 5 (Chłodnia 1, zgłoszenie użytkownika: było widać tylko 3 — patrz komentarz
+// przy wierszu pomp niżej) — stąd mapa zamiast jednej stałej liczby kolumn.
+const PUMP_ROW_GRID_CLASSES: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+  5: 'grid-cols-5',
+};
 
 /**
  * Ekran szczegółowy Chłodni 1/2/3 — dotychczasowe 3 metryki analogowe
@@ -46,16 +59,18 @@ export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
        * pozostałą wysokość ekranu po lewej, więc kafle mogą być realnie
        * większe niż w poprzedniej wersji (3 metryki nie zabierają już
        * osobnego poziomego pasa nad siatką urządzeń). */}
-      {/* Budżet szerokości lewej kolumny na kiosku (nie da się przeskoczyć
-       * `overflow-hidden` na `<main>` w Wallboard.tsx żadnym scrollem — jeśli
-       * rząd 5 kafli pomp nie zmieści się w jednej linii, 5. kafel po prostu
-       * znika pod dolną krawędzią ekranu, patrz historia tego pliku). Przy
-       * ~1920px szerokości okna kolumna urządzeń ma tu ok. 1328px (2xl:px-10
-       * na `<main>`, `gap-8` tej siatki, `30rem` drugiej kolumny) — rząd 5×
-       * `DeviceStatusTile` (`2xl:w-56`=224px) + 4×`gap-6`(24px) = 1216px,
-       * ~110px zapasu. Przy zwiększaniu `DeviceStatusTile` w przyszłości
-       * policz to ponownie zamiast zgadywać (patrz komentarz w
-       * `DeviceStatusTile.tsx`). */}
+      {/* Wiersz pomp obiegowych używa CSS grid (`fillRow` na DeviceStatusTile,
+       * `PUMP_ROW_GRID_CLASSES` niżej) zamiast `flex flex-wrap` ze stałą
+       * szerokością kafla — grid o tylu kolumnach, ile jest pomp, gwarantuje
+       * JEDEN wiersz niezależnie od ich liczby. Poprzednia wersja liczyła
+       * piksele "na sztywno" dla dokładnie 5 kafli i przy węższym oknie
+       * (kolumna urządzeń węższa niż ~1920px zakładał budżet) zawijała się —
+       * `<main>` w Wallboard.tsx ma `overflow-hidden` (kiosk, brak scrolla),
+       * więc zawinięty 5. kafel po prostu znikał pod dolną krawędzią ekranu
+       * (zgłoszenie użytkownika, wrzesień 2026: "Chłodnia 1 ma 5 pomp, nie
+       * trzy"). Sprężarki/Agregaty (zawsze 2 urządzenia) zostają przy
+       * dawnym, wąskim `flex flex-wrap` — nie ma ryzyka przepełnienia rzędu
+       * przy stałej liczbie 2. */}
       <div className="flex-1 min-h-0 grid grid-cols-[1fr_20rem] xl:grid-cols-[1fr_23rem] 2xl:grid-cols-[1fr_30rem] gap-4 2xl:gap-8">
         {groupStatuses.length > 0 ? (
           <div className="min-h-0 flex flex-col justify-around gap-3 2xl:gap-6">
@@ -91,7 +106,16 @@ export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
                     {group.note}
                   </p>
                 )}
-                <div className="flex flex-wrap justify-start gap-3 2xl:gap-6">
+                <div
+                  className={cn(
+                    group.id === PUMP_GROUP_ID
+                      ? cn(
+                          'grid w-full gap-3 2xl:gap-6',
+                          PUMP_ROW_GRID_CLASSES[group.devices.length] ?? 'grid-cols-1'
+                        )
+                      : 'flex flex-wrap justify-start gap-3 2xl:gap-6'
+                  )}
+                >
                   {group.devices.map((device) => (
                     <DeviceStatusTile
                       key={device.id}
@@ -108,6 +132,7 @@ export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
                       // wartością liczbową (np. "Pompy obiegowe": Pompa 1 ma
                       // Hz, 2-5 nie) — patrz komentarz w DeviceStatusTile.tsx.
                       reserveSecondaryRow={group.devices.some((d) => d.secondaryValue !== null)}
+                      fillRow={group.id === PUMP_GROUP_ID}
                     />
                   ))}
                 </div>

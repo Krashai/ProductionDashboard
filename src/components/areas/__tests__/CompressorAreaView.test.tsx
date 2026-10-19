@@ -72,8 +72,17 @@ function analogMetric(overrides: Partial<Metric>): Metric {
     decimals: 2,
     history: [6.8, 6.9, 7],
     alarm: false,
+    online: true,
     ...overrides,
   };
+}
+
+/** Ustawia `online: false` na metrykach o podanych id — symuluje utratę
+ * połączenia z JEDNYM fizycznym PLC (patrz `isSectionOffline` w
+ * CompressorAreaView.tsx), a nie z całym obszarem. */
+function withOffline(metrics: Metric[], ids: string[]): Metric[] {
+  const idSet = new Set(ids);
+  return metrics.map((m) => (idSet.has(m.id) ? { ...m, online: false, value: 0 } : m));
 }
 
 function baseAnalogMetrics(): Metric[] {
@@ -148,10 +157,28 @@ describe('CompressorAreaView', () => {
     expect(tile.querySelector('[data-testid="device-fault-dot"]')?.className).toMatch(/animate-alarm-flash/);
   });
 
-  test('isOnline===false propaguje offline do kafli urządzeń', () => {
-    const { container } = render(<CompressorAreaView area={snapshot({ isOnline: false })} definition={definition} />);
+  test('PLC Magazynu Aluminium offline (metric.online=false) propaguje offline do kafli JEGO urządzeń', () => {
+    const metrics = withOffline(
+      [...baseAnalogMetrics(), ...runningDeviceMetrics()],
+      ['sprezarkownia-magazyn-aluminium-cisnienie-zbiornik']
+    );
+    const { container } = render(<CompressorAreaView area={snapshot({ metrics })} definition={definition} />);
     const tile = container.querySelector('[data-testid="device-tile-aluminium-1"]');
     expect(tile?.className).toMatch(/grayscale-\[0\.5\]/);
+  });
+
+  // Regresja zgłoszenia użytkownika (wrzesień 2026): PLC Magazynu Aluminium
+  // (MA_M3) offline nie może zgasić kafli Magazynu Bębnów (MB_M2, żywy PLC).
+  test('PLC Magazynu Aluminium offline NIE propaguje offline do kafli Magazynu Bębnów', () => {
+    const metrics = withOffline(
+      [...baseAnalogMetrics(), ...runningDeviceMetrics()],
+      ['sprezarkownia-magazyn-aluminium-cisnienie-zbiornik']
+    );
+    const { container } = render(<CompressorAreaView area={snapshot({ metrics, isOnline: false })} definition={definition} />);
+    const aluminiumTile = container.querySelector('[data-testid="device-tile-aluminium-1"]');
+    const bebnyTile = container.querySelector('[data-testid="device-tile-bebny-1"]');
+    expect(aluminiumTile?.className).toMatch(/grayscale-\[0\.5\]/);
+    expect(bebnyTile?.className).not.toMatch(/grayscale-\[0\.5\]/);
   });
 
   test('renderuje 1 kafel metryki dla Magazyn Aluminium i 3 dla Magazyn Bębnów', () => {
@@ -187,10 +214,34 @@ describe('CompressorAreaView', () => {
     expect(other).not.toHaveClass('animate-alarm-flash');
   });
 
-  test('isOnline===false propaguje offline do wszystkich kafli metryk', () => {
-    const { container } = render(<CompressorAreaView area={snapshot({ isOnline: false })} definition={definition} />);
+  test('PLC Magazynu Aluminium offline (metric.online=false) propaguje offline do JEGO kafla metryki', () => {
+    const metrics = withOffline(
+      [...baseAnalogMetrics(), ...runningDeviceMetrics()],
+      ['sprezarkownia-magazyn-aluminium-cisnienie-zbiornik']
+    );
+    const { container } = render(<CompressorAreaView area={snapshot({ metrics })} definition={definition} />);
     const card = container.querySelector('[data-testid="metric-card-sprezarkownia-magazyn-aluminium-cisnienie-zbiornik"]');
     expect(card?.className).toMatch(/grayscale-\[0\.5\]/);
+  });
+
+  // Regresja zgłoszenia użytkownika (wrzesień 2026): to WŁAŚNIE ten defekt —
+  // PLC Magazynu Aluminium offline gasił też ciśnienie Magazynu Bębnów,
+  // mimo że jego PLC (MB_M2) cały czas nadawał żywe dane.
+  test('PLC Magazynu Aluminium offline NIE gasi kafli ciśnienia Magazynu Bębnów', () => {
+    const metrics = withOffline(
+      [...baseAnalogMetrics(), ...runningDeviceMetrics()],
+      ['sprezarkownia-magazyn-aluminium-cisnienie-zbiornik']
+    );
+    const { container, getByText } = render(
+      <CompressorAreaView area={snapshot({ metrics, isOnline: false })} definition={definition} />
+    );
+    const bebnyCard = container.querySelector(
+      '[data-testid="metric-card-sprezarkownia-magazyn-bebnow-cisnienie-zbiornik"]'
+    );
+    expect(bebnyCard?.className).not.toMatch(/grayscale-\[0\.5\]/);
+    // Nie tylko brak wygaszenia — realna wartość musi się nadal renderować,
+    // nie „—”.
+    expect(getByText('6.90', { selector: '[data-testid="metric-card-sprezarkownia-magazyn-bebnow-cisnienie-zbiornik"] .font-mono' })).toBeInTheDocument();
   });
 
   // Spójność z CoolingAreaView (grupa pomp ma odpowiednik "N z M pracuje") —

@@ -97,6 +97,7 @@ function zeroedMetric(metricDef: MetricDefinition): Metric {
     value: 0,
     history: [],
     alarm: false,
+    online: false,
   };
 }
 
@@ -153,6 +154,9 @@ function mapArea(
     // Same hold-last-known rule as `alarm`, so a held alarm keeps its reason.
     const alarmDescription =
       backendMetric !== undefined ? backendMetric.alarm_description : previousMetric?.alarmDescription ?? null;
+    // Same "hold last known state" degrade as `value`/`alarm` above — a
+    // missing/invalid reading must not flip a metric to look online.
+    const online = backendMetric?.online ?? previousMetric?.online ?? false;
     const history = [...(previousMetric?.history ?? []), value].slice(-ctx.historyLength);
 
     return {
@@ -164,6 +168,7 @@ function mapArea(
       history,
       alarm,
       alarmDescription,
+      online,
     };
   });
 

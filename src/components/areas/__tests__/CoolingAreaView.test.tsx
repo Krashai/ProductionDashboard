@@ -219,6 +219,73 @@ describe('CoolingAreaView', () => {
       expect(pompa2.querySelector('[data-testid="device-secondary-row"]')).toHaveClass('invisible');
     });
 
+    // Regresja zgłoszenia użytkownika (wrzesień 2026): "Chłodnia 1 ma 5
+    // pomp, nie trzy jak jest to teraz przedstawione" — rząd pomp musiał
+    // zawijać się przy stałej szerokości kafla (`overflow-hidden` na
+    // `<main>` w Wallboard.tsx obcinał zawinięty kafel). Wiersz pomp jest
+    // teraz CSS gridem o tylu kolumnach, ile jest pomp — gwarantuje to
+    // jedną linię niezależnie od ich liczby, zamiast polegać na budżecie
+    // pikseli policzonym tylko dla jednej konkretnej liczby kafli.
+    describe('wiersz pomp (fillRow, dowolna liczba pomp mieści się w jednej linii)', () => {
+      function fivePumpDefinition(): AreaDefinition {
+        const pumpDevices = Array.from({ length: 5 }, (_, i) => {
+          const n = i + 1;
+          return {
+            id: `pompa-${n}`,
+            label: `Pompa ${n}`,
+            metricIds: {
+              praca: `chlodnia-1-pompa-${n}-praca`,
+              awaria: `chlodnia-1-pompa-${n}-awaria`,
+              ...(n === 1 ? { secondary: 'chlodnia-1-pompa-1-hz' } : {}),
+            },
+          };
+        });
+        return {
+          ...definitionWithDevices,
+          deviceGroups: [DEVICE_GROUPS[0], { id: 'pompy', label: 'Pompy obiegowe', devices: pumpDevices }],
+        };
+      }
+
+      function fivePumpMetrics(): Metric[] {
+        return Array.from({ length: 5 }, (_, i) => i + 1).flatMap((n) => [
+          boolMetric(`chlodnia-1-pompa-${n}-praca`, 1),
+          boolMetric(`chlodnia-1-pompa-${n}-awaria`, 0),
+        ]);
+      }
+
+      test('renderuje 5 kafli pomp (nie 3)', () => {
+        const withFivePumps = snapshot({ metrics: [...baseMetrics(), ...fivePumpMetrics()] });
+        const { container } = render(<CoolingAreaView area={withFivePumps} definition={fivePumpDefinition()} />);
+        for (const n of [1, 2, 3, 4, 5]) {
+          expect(container.querySelector(`[data-testid="device-tile-pompa-${n}"]`)).toBeInTheDocument();
+        }
+      });
+
+      test('wiersz pomp jest gridem o 5 kolumnach, nie flex-wrap (gwarancja jednej linii)', () => {
+        const withFivePumps = snapshot({ metrics: [...baseMetrics(), ...fivePumpMetrics()] });
+        const { container } = render(<CoolingAreaView area={withFivePumps} definition={fivePumpDefinition()} />);
+        const row = container.querySelector('[data-testid="device-tile-pompa-1"]')!.parentElement as HTMLElement;
+        expect(row.className).toMatch(/(^|\s)grid-cols-5(\s|$)/);
+        expect(row.className).not.toMatch(/flex-wrap/);
+      });
+
+      test('kafle pomp NIE mają stałej szerokości Chłodni (fillRow=true — wypełniają kolumnę gridu)', () => {
+        const withFivePumps = snapshot({ metrics: [...baseMetrics(), ...fivePumpMetrics()] });
+        const { container } = render(<CoolingAreaView area={withFivePumps} definition={fivePumpDefinition()} />);
+        const tile = container.querySelector('[data-testid="device-tile-pompa-3"]');
+        expect(tile?.className).not.toMatch(/(^|\s)w-32(\s|$)/);
+      });
+
+      test('Sprężarki (2 urządzenia, niezmienione) zostają przy flex-wrap i stałej szerokości', () => {
+        const withFivePumps = snapshot({ metrics: [...baseMetrics(), ...fivePumpMetrics()] });
+        const { container } = render(<CoolingAreaView area={withFivePumps} definition={fivePumpDefinition()} />);
+        const sprezarkiTile = container.querySelector('[data-testid="device-tile-v101"]')!;
+        const sprezarkiRow = sprezarkiTile.parentElement as HTMLElement;
+        expect(sprezarkiRow.className).toMatch(/flex-wrap/);
+        expect(sprezarkiTile.className).toMatch(/(^|\s)w-32(\s|$)/);
+      });
+    });
+
     test('isOnline=false propaguje offline do kafli urządzeń', () => {
       const withDevices = snapshot({ metrics: [...baseMetrics(), ...runningPumpMetrics()], isOnline: false });
       const { container } = render(<CoolingAreaView area={withDevices} definition={definitionWithDevices} />);

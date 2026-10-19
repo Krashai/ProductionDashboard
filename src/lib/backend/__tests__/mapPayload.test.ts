@@ -13,6 +13,7 @@ function makeMetric(overrides: Partial<BackendMetric> = {}): BackendMetric {
     value: 1,
     alarm: false,
     alarm_description: null,
+    online: true,
     ...overrides,
   };
 }

@@ -76,7 +76,7 @@ function payload(areas: BackendArea[]): BackendStateUpdate {
 describe('mapAreasPayload — opisy i alarmy diagnostyczne', () => {
   test('przenosi alarm_description do metryki', () => {
     const [c1] = mapAreasPayload(payload([backendArea({ metrics: {
-      'chlodnia-1-temp': { label: 'T', unit: '°C', decimals: 1, value: 9.5, alarm: true, alarm_description: 'Powyżej maksimum (9.0)' },
+      'chlodnia-1-temp': { label: 'T', unit: '°C', decimals: 1, value: 9.5, alarm: true, alarm_description: 'Powyżej maksimum (9.0)', online: true },
     } })]), []);
 
     expect(c1.metrics.find((m) => m.id === 'chlodnia-1-temp')?.alarmDescription).toBe('Powyżej maksimum (9.0)');
