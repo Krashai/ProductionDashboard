@@ -1,4 +1,5 @@
 import { clampNonNegative, cn } from '@/lib/utils';
+import { FIT_CLASSES, fitTileStyle } from '@/lib/overview-fit';
 import {
   overviewAccentBarClasses,
   overviewAccentGlowShadow,
@@ -16,6 +17,9 @@ interface OverviewTankTileProps {
   size?: 'default' | 'lg';
   testId?: string;
   className?: string;
+  /** Patrz `OverviewMetricTile.fitChars` — ten sam mechanizm dopasowania do
+   * okna w trybie `narrow:`, żeby kafel poziomu rósł razem z sąsiadami. */
+  fitChars?: number;
 }
 
 const VALUE_SIZE_CLASSES: Record<'default' | 'lg', string> = {
@@ -70,18 +74,22 @@ export function OverviewTankTile({
   size = 'default',
   testId,
   className,
+  fitChars,
 }: OverviewTankTileProps) {
+  const fit = fitChars !== undefined;
   const ratio = maxCm > 0 ? clamp(valueCm / maxCm, 0, 1) : 0;
   const percent = Math.round(ratio * 100);
 
   return (
     <div
       data-testid={testId}
+      style={fitTileStyle(fitChars)}
       className={cn(
         // Brak `shadow-sm` bazowego, patrz komentarz w OverviewMetricTile.tsx.
         'relative min-w-0 overflow-hidden rounded-2xl xl:rounded-[1.75rem] 2xl:rounded-[2rem] flex flex-col transition-all duration-500',
         overviewCardStateClasses(alarm, offline),
         overviewAccentGlowShadow(alarm),
+        fit && FIT_CLASSES.root,
         className
       )}
     >
@@ -95,17 +103,31 @@ export function OverviewTankTile({
         )}
         style={{ height: `${percent}%` }}
       />
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col justify-between min-w-0 pl-4 pr-3 py-3 xl:pl-5 xl:pr-4 xl:py-4 2xl:pl-7 2xl:pr-6 2xl:py-6">
-        <div className="flex items-baseline gap-1">
+      <div
+        className={cn(
+          'relative z-10 flex-1 min-h-0 flex flex-col justify-between min-w-0 pl-4 pr-3 py-3 xl:pl-5 xl:pr-4 xl:py-4 2xl:pl-7 2xl:pr-6 2xl:py-6',
+          fit && FIT_CLASSES.body
+        )}
+      >
+        <div className={cn('flex items-baseline gap-1', fit && FIT_CLASSES.valueRow)}>
           <span
             className={cn(
               'font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900',
-              VALUE_SIZE_CLASSES[size]
+              VALUE_SIZE_CLASSES[size],
+              fit && FIT_CLASSES.value
             )}
           >
             {offline ? '—' : Math.round(clampNonNegative(valueCm))}
           </span>
-          <span className={cn('font-bold text-slate-800 lowercase', UNIT_SIZE_CLASSES[size])}>cm</span>
+          <span
+            className={cn(
+              'font-bold text-slate-800 lowercase',
+              UNIT_SIZE_CLASSES[size],
+              fit && FIT_CLASSES.unit
+            )}
+          >
+            cm
+          </span>
         </div>
         {/* text-slate-900, nie -600: ta etykieta siedzi na dolnej krawędzi
          * karty, dokładnie tam gdzie zaczyna się kolorowe wypełnienie

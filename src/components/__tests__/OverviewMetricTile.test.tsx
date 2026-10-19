@@ -241,4 +241,32 @@ describe('OverviewMetricTile', () => {
       expect(screen.getByText('1').className).toMatch(/text-6xl/);
     });
   });
+
+  // Tryb `narrow:` (okno obok drugiego okna) jest opt-in: kafel jest też
+  // używany przez ekrany szczegółowe Chłodni/Energii/Sprężarkowni, które
+  // mają renderować się dokładnie jak dotąd.
+  describe('fitChars — dopasowanie do okna w trybie narrow:', () => {
+    test('bez fitChars kafel nie dostaje stylu ani żadnej klasy narrow:', () => {
+      const { container } = render(<OverviewMetricTile label="Temperatura" value={17} unit="°C" decimals={0} />);
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.getAttribute('style')).toBeNull();
+      expect(container.innerHTML).not.toMatch(/narrow:|overview-fit-tile/);
+    });
+
+    test('z fitChars ustawia budżet znaków i skaluje wartość oraz jednostkę', () => {
+      const { container } = render(
+        <OverviewMetricTile label="Temperatura" value={17} unit="°C" decimals={0} fitChars={5} />
+      );
+      const root = container.firstElementChild as HTMLElement;
+      expect(root.style.getPropertyValue('--value-chars')).toBe('5');
+      expect(root).toHaveClass('overview-fit-tile', 'narrow:[container-type:size]');
+      expect(screen.getByText('17')).toHaveClass('narrow:[font-size:var(--fit-value)]', 'narrow:leading-none');
+      expect(screen.getByText('°C')).toHaveClass('narrow:[font-size:var(--fit-unit)]');
+    });
+
+    test('z fitChars bazowe klasy rozmiaru kiosku zostają nietknięte', () => {
+      render(<OverviewMetricTile label="Temperatura" value={17} unit="°C" decimals={0} fitChars={4} />);
+      expect(screen.getByText('17').className).toMatch(/text-4xl xl:text-5xl 2xl:text-6xl/);
+    });
+  });
 });

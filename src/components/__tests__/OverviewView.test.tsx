@@ -169,4 +169,23 @@ describe('OverviewView — layout wg makiety (Concept.md §6a.1, decyzje #27-30,
     expect(contentWrapper).toHaveClass('flex-1');
     expect(contentWrapper).toHaveClass('min-h-0');
   });
+
+  test('narrow: każdy kafel ekranu głównego dostaje budżet znaków, nie mniejszy niż minimum sekcji', () => {
+    const { container } = render(<OverviewView />);
+    const tiles = [
+      ...container.querySelectorAll<HTMLElement>('[data-testid^="overview-metric-tile-"], [data-testid^="overview-tank-tile-"]'),
+    ];
+    expect(tiles).toHaveLength(15);
+    for (const tile of tiles) {
+      expect(Number(tile.style.getPropertyValue('--value-chars'))).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  test('narrow: Energia zajmuje dwa wiersze siatki (obok Chłodni 2 i 3), siatka ma 3 równe wiersze', () => {
+    const { container } = render(<OverviewView />);
+    const grid = container.querySelector('[data-testid="overview-body-grid"]') as HTMLElement;
+    expect(grid).toHaveClass('narrow:grid-rows-[repeat(3,minmax(0,1fr))]');
+    const energy = screen.getByRole('heading', { name: 'Energia elektryczna' }).closest('section') as HTMLElement;
+    expect(energy).toHaveClass('narrow:row-span-2');
+  });
 });

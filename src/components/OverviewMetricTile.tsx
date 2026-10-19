@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { clampNonNegative, cn } from '@/lib/utils';
 import { Counter } from '@/components/Counter';
+import { FIT_CLASSES, fitTileStyle } from '@/lib/overview-fit';
 import {
   overviewAccentBarClasses,
   overviewAccentGlowShadow,
@@ -46,6 +47,12 @@ interface OverviewMetricTileProps {
    * `PhaseBalanceBar`. Bez `children` kafel renderuje się dokładnie tak jak
    * przed dodaniem tego slotu (nie ma tu żadnego opakowującego diva). */
   children?: ReactNode;
+  /** Budżet znaków liczby (`fitValueChars`) — włącza dopasowanie kafla do
+   * okna w trybie `narrow:` (przeglądarka obok drugiego okna): liczba skaluje
+   * się do wymiarów kafla, a jednostka stoi zawsze pod nią zamiast zawijać się
+   * zależnie od długości wartości. Używane wyłącznie przez ekran główny
+   * (`OverviewView`); bez tego propa kafel renderuje się dokładnie jak dotąd. */
+  fitChars?: number;
 }
 
 type TileSize = 'sm' | 'default' | 'lg';
@@ -135,10 +142,14 @@ export function OverviewMetricTile({
   testId,
   className,
   children,
+  fitChars,
 }: OverviewMetricTileProps) {
+  const fit = fitChars !== undefined;
+
   return (
     <div
       data-testid={testId}
+      style={fitTileStyle(fitChars)}
       className={cn(
         // Brak `shadow-sm` bazowego: `overviewAccentGlowShadow` niżej zawsze
         // nadpisuje shadow przez twMerge (pusty string w stanie normalnym),
@@ -153,6 +164,7 @@ export function OverviewMetricTile({
         RADIUS_SIZE_CLASSES[size],
         overviewCardStateClasses(alarm, offline),
         overviewAccentGlowShadow(alarm),
+        fit && FIT_CLASSES.root,
         className
       )}
     >
@@ -161,14 +173,16 @@ export function OverviewMetricTile({
         className={cn(
           'flex-1 min-h-0 flex flex-col min-w-0',
           align === 'center' ? 'justify-center' : 'justify-between',
+          fit && FIT_CLASSES.body,
           PADDING_SIZE_CLASSES[size]
         )}
       >
-        <div className="flex items-baseline gap-1 flex-wrap">
+        <div className={cn('flex items-baseline gap-1 flex-wrap', fit && FIT_CLASSES.valueRow)}>
           <span
             className={cn(
               'font-black font-mono tracking-tighter tabular-nums leading-none text-slate-900',
-              VALUE_SIZE_CLASSES[size]
+              VALUE_SIZE_CLASSES[size],
+              fit && FIT_CLASSES.value
             )}
           >
             {offline ? (
@@ -185,7 +199,15 @@ export function OverviewMetricTile({
             // elektryka to nie kosmetyka, tylko błędna informacja (kVA≠kva,
             // a "v" to wolt czy... nic). Wcześniej nie rzucało się w oczy, bo
             // jedyne jednostki na ekranach były bar/cm, przypadkiem małymi.
-            <span className={cn('font-bold text-slate-500', UNIT_SIZE_CLASSES[size])}>{unit}</span>
+            <span
+              className={cn(
+                'font-bold text-slate-500',
+                UNIT_SIZE_CLASSES[size],
+                fit && FIT_CLASSES.unit
+              )}
+            >
+              {unit}
+            </span>
           )}
         </div>
         {children}
