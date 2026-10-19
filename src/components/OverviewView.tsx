@@ -5,6 +5,7 @@ import { Pin, Snowflake, Wind, Zap, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreasData } from '@/hooks/useAreasData';
 import { AlarmBar } from '@/components/AlarmBar';
+import { Logo } from '@/components/brand/Logo';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { OverviewTankTile } from '@/components/OverviewTankTile';
@@ -72,19 +73,27 @@ export function OverviewView() {
          * dwóch oddaje więcej wysokości treści pod spodem. Separator w
          * pionie odróżnia tytuł od linków bez dodatkowego rzędu/obramowania. */}
         {/* `narrow:` (decyzja użytkownika, październik 2026): jeden rząd —
-         * tytuł, pigułki po jego prawej, LIVE w prawym rogu. Nic się nie
-         * zawija pod tytuł: gdy pigułki się nie mieszczą, zawijają się
-         * wewnątrz swojego obszaru (`flex-1 min-w-0`), a tytuł i LIVE zostają
+         * logo, pigułki po jego prawej, LIVE w prawym rogu. Nic się nie
+         * zawija pod logo: gdy pigułki się nie mieszczą, zawijają się
+         * wewnątrz swojego obszaru (`flex-1 min-w-0`), a logo i LIVE zostają
          * na miejscu — zamiast samotnego LIVE w osobnej, trzeciej linii.
          * Ciaśniejsze odstępy, padding i rozstrzelenie liter pigułek
          * (`narrow:gap-*`, `narrow:px-2`, `narrow:tracking-wider`) i brak
-         * separatora (tytuł sam oddziela nawigację) mieszczą wszystkie pięć
+         * separatora (logo samo oddziela nawigację) mieszczą wszystkie pięć
          * w jednym rzędzie już w oknie ~940px, z zapasem na inną czcionkę. */}
         <header className="shrink-0 flex flex-wrap narrow:flex-nowrap items-center gap-x-4 narrow:gap-x-3 gap-y-2 xl:gap-x-6 pb-4 xl:pb-5 2xl:pb-6 border-b border-slate-100">
           <div className="flex items-center gap-4 xl:gap-5 2xl:gap-6 flex-wrap min-w-0 narrow:flex-1 narrow:flex-nowrap narrow:gap-3">
-            <h1 className="shrink-0 text-xl xl:text-2xl 2xl:text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none">
-              Przegląd zakładu
-            </h1>
+            {/* Logo LineFLOW zamiast widocznego tytułu (decyzja użytkownika,
+             * październik 2026). `h-5 xl:h-6` — 20px to minimum wordmarku
+             * (brand/LOGO-SPEC.md §10). `my-1` daje 32px od progu `xl`, czyli
+             * wysokość linii dawnego tytułu (`text-2xl` niesie własny
+             * line-height) — nagłówek i siatka kiosku zostają co do piksela.
+             * Poniżej `xl` (28px) wysokość nagłówka i tak wyznacza wyższy
+             * znacznik LIVE (~29px); gdyby kiedyś zmalał poniżej 28px, nagłówek
+             * w wąskim oknie urośnie o kilka px. `h1` zostaje dla czytników
+             * ekranu i nawigacji po nagłówkach. */}
+            <Logo wink className="h-5 xl:h-6 my-1" />
+            <h1 className="sr-only">Przegląd zakładu</h1>
             <div aria-hidden="true" className="hidden sm:block narrow:hidden shrink-0 w-px h-5 xl:h-6 bg-slate-200" />
             {/* Nawigacja skrótowa do widoku przypiętego per obszar (decyzja
              * #37). Prowadzi do `/?area=X`, które `useDisplayMode` rozwiązuje

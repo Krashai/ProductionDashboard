@@ -242,8 +242,8 @@ describe('Wallboard — navbar (jeden rząd chrome)', () => {
     const { container } = render(<Wallboard />);
     const h1 = container.querySelector('h1.sr-only') as HTMLElement;
     expect(h1).toBeInTheDocument();
-    expect(h1).toHaveTextContent(`DashboardApp — ${AREAS[0].name}`);
-    expect(document.title).toBe(`DashboardApp — ${AREAS[0].name}`);
+    expect(h1).toHaveTextContent(`LineFLOW — ${AREAS[0].name}`);
+    expect(document.title).toBe(`LineFLOW — ${AREAS[0].name}`);
   });
 });
 

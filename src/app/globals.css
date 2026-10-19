@@ -127,3 +127,51 @@ body {
     )
   );
 }
+
+/* Logo rodziny Line (brand/LOGO-SPEC.md, §5) — kolory jako zmienne, żeby
+   inline SVG (`components/brand/Logo.tsx`) był sterowany z CSS. Tylko
+   wariant na jasne tło: aplikacja ma zawsze białe tło (`body`), więc reguły
+   `prefers-color-scheme: dark` ze specyfikacji zmieniłyby tekst logo na jasny
+   na białym tle. */
+.ln-logo {
+  --ink: #14171c;
+  --bezel: #8a9099;
+  --lens: var(--brand-lamp);
+}
+.ln-logo[data-product="lineflow"] {
+  --brand-lamp: #18b2a3;
+}
+.ln-logo .ln-glyphs {
+  fill: var(--ink);
+}
+.ln-logo .ln-bezel {
+  fill: none;
+  stroke: var(--bezel);
+}
+.ln-logo .ln-lens {
+  fill: var(--lens);
+}
+
+/* Easter egg: dwa czerwone mrugnięcia soczewki (`data-wink` ustawia Logo.tsx
+   na `WINK_DURATION_MS` — czasy muszą się zgadzać). Czerwień = token
+   `--state-alarm` ze specyfikacji (§4). Animuje się wyłącznie soczewka;
+   obudowa i tekst nigdy (§5). `step-end` — ostre przełączenie kolorów jak w
+   lampce; płynne przejście szło przez brudny brąz między turkusem a czerwienią.
+   Świadomy wyjątek od §11 (czerwień poza stanem `alarm`) — decyzja użytkownika. */
+.ln-logo {
+  --wink: #e5322d;
+}
+@keyframes ln-wink {
+  0%, 35%, 85%, 100% { fill: var(--lens); }
+  15%, 65% { fill: var(--wink); }
+}
+.ln-logo[data-wink] .ln-lens {
+  animation: ln-wink 1.6s step-end 1;
+}
+/* Selektor musi mieć co najmniej specyficzność reguły mrugania wyżej —
+   samo `.ln-logo .ln-lens` przegrywało i soczewka i tak robiła się czerwona. */
+@media (prefers-reduced-motion: reduce) {
+  .ln-logo[data-wink] .ln-lens {
+    animation: none;
+  }
+}
