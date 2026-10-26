@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { LINEFLOW_LOGO } from '@/components/brand/lineflow-logo.generated';
+import { useFaviconWink } from '@/components/brand/useFaviconWink';
 import { prefersReducedMotion } from '@/lib/brand/reduced-motion';
 import { winkScheduler } from '@/lib/brand/wink-scheduler';
 
@@ -23,6 +24,8 @@ interface LogoProps {
  */
 export function Logo({ className, label = LINEFLOW_LOGO.name, wink = false }: LogoProps) {
   const isWinking = useWink(wink);
+  // Favicona mruga w tej samej chwili co lampka w logo (wspólny scheduler).
+  useFaviconWink(wink);
   const { lamp } = LINEFLOW_LOGO;
 
   return (
