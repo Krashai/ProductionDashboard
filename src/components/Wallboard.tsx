@@ -85,6 +85,11 @@ export function Wallboard() {
   // licząc alarmów lokalnie drugi raz, żeby kropka w navbarze nigdy nie
   // mogła powiedzieć co innego niż pasek na dole (jedno źródło prawdy o tym,
   // co jest "alarmem"; wycisza je też tak samo, np. dla wyłączonej chłodni).
+  //
+  // Kropki świadomie NIE chowają alarmów nieaktualnych obszarów (w odróżnieniu
+  // od chipów na pasku): kafel takiego obszaru też trzyma alarm z ostatniej
+  // ramki, więc kropka i kafel mówią to samo, a o nieaktualności informuje
+  // pasek u dołu. Ukrycie kropki zostawiłoby migający kafel bez wskaźnika.
   const alarmedAreaIds = useMemo(
     () => new Set(collectAlarms(areas).map((alarm) => alarm.areaId)),
     [areas]
@@ -310,7 +315,7 @@ export function Wallboard() {
         </div>
       </div>
 
-      <AlarmBar areas={areas} />
+      <AlarmBar areas={areas} status={status} now={now} />
     </main>
   );
 }

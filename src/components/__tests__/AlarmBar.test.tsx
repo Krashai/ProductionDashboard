@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { AlarmBar, collectAlarms } from '@/components/AlarmBar';
+import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot, Metric } from '@/lib/types';
+
+const NOW = 1_700_000_000_000;
 
 // jsdom nie liczy prawdziwego layoutu — `scrollWidth`/`clientWidth` są zawsze
 // 0, więc żeby przetestować detekcję przepełnienia trzeba je podstawić
@@ -46,7 +49,7 @@ function area(overrides: Partial<AreaSnapshot>): AreaSnapshot {
     type: 'cooling',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
-    lastFreshAt: null,
+    lastFreshAt: NOW,
     metrics: [],
     ...overrides,
   };
@@ -105,7 +108,7 @@ describe('collectAlarms (agregacja alarmów)', () => {
 describe('AlarmBar', () => {
   test('brak alarmów => chip "Wszystko OK" w kolorze emerald', () => {
     const areas = [area({ metrics: [metric({ alarm: false })] })];
-    const { container } = render(<AlarmBar areas={areas} />);
+    const { container } = render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     expect(screen.getByText('Wszystko OK')).toBeInTheDocument();
     const chip = container.querySelector('[data-testid="alarm-chip-ok"]');
@@ -120,7 +123,7 @@ describe('AlarmBar', () => {
         metrics: [metric({ id: 'p', label: 'Ciśnienie wody na halę', alarm: true })],
       }),
     ];
-    render(<AlarmBar areas={areas} />);
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     const chip = screen.getByText('Chłodnia 2 — Ciśnienie wody na halę');
     expect(chip).toBeInTheDocument();
@@ -143,7 +146,7 @@ describe('AlarmBar', () => {
         metrics: [metric({ id: 'drums', label: 'Magazyn Bębnów', alarm: true })],
       }),
     ];
-    render(<AlarmBar areas={areas} />);
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     expect(screen.getByText('Chłodnia 1 — Temperatura wody na halę')).toBeInTheDocument();
     expect(screen.getByText('Sprężarkownia — Magazyn Bębnów')).toBeInTheDocument();
@@ -155,15 +158,15 @@ describe('AlarmBar', () => {
     ];
     const withoutAlarm = [area({ metrics: [metric({ id: 'p', alarm: false })] })];
 
-    const { rerender } = render(<AlarmBar areas={withAlarm} />);
+    const { rerender } = render(<AlarmBar areas={withAlarm} status="live" now={NOW} />);
     expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
 
-    rerender(<AlarmBar areas={withoutAlarm} />);
+    rerender(<AlarmBar areas={withoutAlarm} status="live" now={NOW} />);
     expect(screen.getByText('Wszystko OK')).toBeInTheDocument();
   });
 
   test('korzeń paska ma shrink-0 (nie może rozciągać layoutu kiosku)', () => {
-    const { container } = render(<AlarmBar areas={[]} />);
+    const { container } = render(<AlarmBar areas={[]} status="live" now={NOW} />);
     const root = container.querySelector('[data-testid="alarm-bar"]');
     expect(root).toHaveClass('shrink-0');
   });
@@ -185,7 +188,7 @@ describe('AlarmBar — pasek jednowierszowy (ticker) przy przepełnieniu', () =>
       }),
     ];
 
-    render(<AlarmBar areas={areas} />);
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('alarm-marquee-track')).not.toHaveClass('animate-alarm-marquee');
@@ -206,7 +209,7 @@ describe('AlarmBar — pasek jednowierszowy (ticker) przy przepełnieniu', () =>
       }),
     ];
 
-    render(<AlarmBar areas={areas} />);
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('alarm-marquee-track')).toHaveClass('animate-alarm-marquee');
@@ -229,7 +232,7 @@ describe('AlarmBar — pasek jednowierszowy (ticker) przy przepełnieniu', () =>
       }),
     ];
 
-    render(<AlarmBar areas={areas} />);
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
 
     await waitFor(() => {
       expect(screen.getByTestId('alarm-marquee-viewport')).toHaveClass('overflow-x-auto');
@@ -295,5 +298,241 @@ describe('collectAlarms — wyciszenie alarmu wyłączonej chłodni (pompy obieg
     expect(collectAlarms(areas).map((a) => a.metricId)).toEqual([
       'sprezarkownia-magazyn-aluminium-cisnienie-zbiornik',
     ]);
+  });
+});
+
+// Okno wstrzymania (decyzja użytkownika 2026-10-26): gdy dane nie są świeże,
+// pasek NIE może mówić "Wszystko OK" — tłumaczy sytuację chipem ze stanem.
+describe('AlarmBar — komunikaty o stanie danych (tabela decyzji)', () => {
+  const alarmingArea = (id: string, name: string, overrides: Partial<AreaSnapshot> = {}) =>
+    area({
+      id,
+      name,
+      metrics: [metric({ id: `${id}-alarm`, label: 'Ciśnienie wody na halę', alarm: true })],
+      ...overrides,
+    });
+
+  const offlineSince = (ageMs: number): Partial<AreaSnapshot> => ({ isOnline: false, lastFreshAt: NOW - ageMs });
+
+  function renderOffline(ageMs: number) {
+    const stale = [
+      alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(ageMs)),
+      alarmingArea('chlodnia-2', 'Chłodnia 2', offlineSince(ageMs)),
+    ];
+    return render(<AlarmBar areas={stale} status="offline" now={NOW} />);
+  }
+
+  test('WS utracone < 2 min: TYLKO bursztynowy chip z wiekiem, bez alarmów i bez "Wszystko OK"', () => {
+    renderOffline(23_000);
+
+    const chip = screen.getByTestId('status-chip-connection');
+    expect(chip).toHaveTextContent('Wznawianie połączenia — dane sprzed 23 s');
+    expect(chip.className).toMatch(/bg-amber-50/);
+    expect(chip.className).toMatch(/border-amber-100/);
+    expect(chip.className).toMatch(/text-amber-800/);
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^alarm-chip-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^status-chip-/)).toHaveLength(1);
+  });
+
+  test('WS utracone >= 2 min: TYLKO różowy chip "Brak połączenia od N min", bez pulsowania', () => {
+    renderOffline(3 * 60_000);
+
+    const chip = screen.getByTestId('status-chip-connection');
+    expect(chip).toHaveTextContent('Brak połączenia od 3 min');
+    expect(chip.className).toMatch(/bg-rose-50/);
+    expect(chip.className).toMatch(/text-rose-800/);
+    expect(chip.className).not.toMatch(/animate-pulse/);
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^alarm-chip-/)).toHaveLength(0);
+  });
+
+  test('nigdy nie dostano danych (connecting, brak obszarów): chip "Łączenie z serwerem…", nie "Wszystko OK"', () => {
+    render(<AlarmBar areas={[]} status="connecting" now={NOW} />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Łączenie z serwerem…');
+    expect(screen.getByTestId('status-chip-connection').className).toMatch(/bg-amber-50/);
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+  });
+
+  test('status offline, ale żadnej ramki jeszcze nie było: też "Łączenie z serwerem…"', () => {
+    const neverFresh = [area({ id: 'chlodnia-1', name: 'Chłodnia 1', isOnline: false, lastFreshAt: null })];
+    render(<AlarmBar areas={neverFresh} status="offline" now={NOW} />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Łączenie z serwerem…');
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+  });
+
+  test('"Wszystko OK" nie pojawia się przy żadnym statusie innym niż live', () => {
+    const healthy = [area({ metrics: [metric({ alarm: false })] })];
+    for (const status of ['connecting', 'offline'] as const) {
+      const { unmount } = render(<AlarmBar areas={healthy} status={status} now={NOW} />);
+      expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  test('WS live, obszar offline < 2 min: bursztynowy chip obszaru; jego alarmy ukryte, alarmy żywych obszarów widoczne', () => {
+    const areas = [
+      alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(12_000)),
+      alarmingArea('chlodnia-2', 'Chłodnia 2'),
+    ];
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
+
+    const chip = screen.getByTestId('status-chip-area-chlodnia-1');
+    expect(chip).toHaveTextContent('Chłodnia 1 — brak odświeżania od 12 s');
+    expect(chip.className).toMatch(/bg-amber-50/);
+    expect(screen.queryByTestId('alarm-chip-chlodnia-1-chlodnia-1-alarm')).not.toBeInTheDocument();
+    expect(screen.getByTestId('alarm-chip-chlodnia-2-chlodnia-2-alarm')).toBeInTheDocument();
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+  });
+
+  test('WS live, obszar offline >= 2 min: różowy chip "brak danych od N min"; jego alarmy ukryte, inne widoczne', () => {
+    const areas = [
+      alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(3 * 60_000)),
+      alarmingArea('chlodnia-2', 'Chłodnia 2'),
+    ];
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
+
+    const chip = screen.getByTestId('status-chip-area-chlodnia-1');
+    expect(chip).toHaveTextContent('Chłodnia 1 — brak danych od 3 min');
+    expect(chip.className).toMatch(/bg-rose-50/);
+    expect(chip.className).not.toMatch(/animate-pulse/);
+    expect(screen.queryByTestId('alarm-chip-chlodnia-1-chlodnia-1-alarm')).not.toBeInTheDocument();
+    expect(screen.getByTestId('alarm-chip-chlodnia-2-chlodnia-2-alarm')).toBeInTheDocument();
+  });
+
+  test('komunikaty obszarów stoją PRZED alarmami żywych obszarów', () => {
+    const areas = [
+      alarmingArea('chlodnia-2', 'Chłodnia 2'),
+      alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(12_000)),
+    ];
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
+
+    const track = screen.getByTestId('alarm-marquee-track');
+    const ids = Array.from(track.querySelectorAll('[data-testid]'))
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id) => id?.startsWith('status-chip-') || id?.startsWith('alarm-chip-'));
+    expect(ids).toEqual(['status-chip-area-chlodnia-1', 'alarm-chip-chlodnia-2-chlodnia-2-alarm']);
+  });
+
+  test('WS live, wszystko świeże, bez alarmów: nadal "Wszystko OK" (bez zmian)', () => {
+    render(<AlarmBar areas={[area({}), area({ id: 'chlodnia-3', name: 'Chłodnia 3' })]} status="live" now={NOW} />);
+
+    expect(screen.getByText('Wszystko OK')).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^status-chip-/)).toHaveLength(0);
+  });
+
+  test('wiek w chipie rośnie razem z `now`', () => {
+    const areas = [alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(23_000))];
+    const { rerender } = render(<AlarmBar areas={areas} status="offline" now={NOW} />);
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('dane sprzed 23 s');
+
+    rerender(<AlarmBar areas={areas} status="offline" now={NOW + 7_000} />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('dane sprzed 30 s');
+  });
+
+  test('po upływie okna ten sam pasek przechodzi z bursztynowego "Wznawianie" w różowy "Brak połączenia"', () => {
+    const areas = [alarmingArea('chlodnia-1', 'Chłodnia 1', offlineSince(STALE_HOLD_MS - 1_000))];
+    const { rerender } = render(<AlarmBar areas={areas} status="offline" now={NOW} />);
+    expect(screen.getByTestId('status-chip-connection').className).toMatch(/amber/);
+
+    rerender(<AlarmBar areas={areas} status="offline" now={NOW + 2_000} />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Brak połączenia od 2 min');
+    expect(screen.getByTestId('status-chip-connection').className).toMatch(/rose/);
+  });
+
+  test('po powrocie danych pasek wraca do "Wszystko OK"', () => {
+    const stale = [area({ ...offlineSince(10_000) })];
+    const { rerender } = render(<AlarmBar areas={stale} status="offline" now={NOW} />);
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+
+    rerender(<AlarmBar areas={[area({})]} status="live" now={NOW} />);
+
+    expect(screen.getByText('Wszystko OK')).toBeInTheDocument();
+  });
+});
+
+describe('AlarmBar — dostępność komunikatów (aria-live="polite")', () => {
+  const stale = (ageMs: number) => [area({ isOnline: false, lastFreshAt: NOW - ageMs })];
+
+  test('wiek jest ukryty przed czytnikiem (aria-hidden), a chip ma stałą etykietę dla czytnika', () => {
+    render(<AlarmBar areas={stale(23_000)} status="offline" now={NOW} />);
+
+    const chip = screen.getByTestId('status-chip-connection');
+    expect(chip.querySelector('[aria-hidden="true"]')).toHaveTextContent('dane sprzed 23 s');
+    expect(chip.querySelector('.sr-only')).toHaveTextContent(/^Wznawianie połączenia$/);
+  });
+
+  test('etykieta dla czytnika nie zmienia się między tickami (czytnik nie ogłasza każdej sekundy)', () => {
+    const { rerender } = render(<AlarmBar areas={stale(23_000)} status="offline" now={NOW} />);
+    const before = screen.getByTestId('status-chip-connection').querySelector('.sr-only')?.textContent;
+
+    rerender(<AlarmBar areas={stale(23_000)} status="offline" now={NOW + 5_000} />);
+    const after = screen.getByTestId('status-chip-connection').querySelector('.sr-only')?.textContent;
+
+    expect(after).toBe(before);
+  });
+
+  test('zmiana fazy zmienia etykietę dla czytnika (to jedyne, co ma być ogłoszone)', () => {
+    const { rerender } = render(<AlarmBar areas={stale(23_000)} status="offline" now={NOW} />);
+    expect(screen.getByTestId('status-chip-connection').querySelector('.sr-only')).toHaveTextContent(
+      'Wznawianie połączenia'
+    );
+
+    rerender(<AlarmBar areas={stale(23_000)} status="offline" now={NOW + STALE_HOLD_MS} />);
+
+    expect(screen.getByTestId('status-chip-connection').querySelector('.sr-only')).toHaveTextContent(
+      'Brak połączenia'
+    );
+  });
+
+  test('chip bez wieku ("Łączenie z serwerem…") nie ma ukrytego fragmentu', () => {
+    render(<AlarmBar areas={[]} status="connecting" now={NOW} />);
+
+    expect(screen.getByTestId('status-chip-connection').querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+});
+
+// Pomiar markizy (`scrollWidth` vs `clientWidth`) kosztuje layout — ma się
+// przeliczać przy zmianie ZESTAWU chipów lub ich fazy, nie co sekundę wraz z
+// tykającym wiekiem. Efekt pomiaru podpina nasłuch `resize`, więc liczba jego
+// uruchomień = liczba wywołań `addEventListener('resize')`.
+describe('AlarmBar — klucz pomiaru markizy nie zawiera tykających sekund', () => {
+  function resizeSubscriptions(spy: { mock: { calls: unknown[][] } }) {
+    return spy.mock.calls.filter(([type]) => type === 'resize').length;
+  }
+
+  test('zmiana samego wieku nie powoduje ponownego pomiaru; zmiana fazy — tak', () => {
+    const areas = [area({ isOnline: false, lastFreshAt: NOW - 10_000 })];
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const { rerender } = render(<AlarmBar areas={areas} status="offline" now={NOW} />);
+    const afterMount = resizeSubscriptions(addSpy);
+    expect(afterMount).toBeGreaterThan(0);
+
+    for (let seconds = 1; seconds <= 10; seconds += 1) {
+      rerender(<AlarmBar areas={areas} status="offline" now={NOW + seconds * 1_000} />);
+    }
+    expect(resizeSubscriptions(addSpy)).toBe(afterMount);
+
+    rerender(<AlarmBar areas={areas} status="offline" now={NOW + STALE_HOLD_MS} />);
+    expect(resizeSubscriptions(addSpy)).toBeGreaterThan(afterMount);
+  });
+});
+
+describe('AlarmBar — komunikaty w tickerze', () => {
+  test('przepełnienie: komunikat obszaru trafia też do zdublowanego toru', async () => {
+    mockLayout({ trackWidth: 5000, viewportWidth: 1000 });
+    mockPrefersReducedMotion(false);
+    const areas = [area({ id: 'chlodnia-1', name: 'Chłodnia 1', isOnline: false, lastFreshAt: NOW - 5_000 })];
+
+    render(<AlarmBar areas={areas} status="live" now={NOW} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('alarm-marquee-track')).toHaveClass('animate-alarm-marquee');
+    });
+    expect(screen.getAllByTestId('status-chip-area-chlodnia-1')).toHaveLength(2);
   });
 });

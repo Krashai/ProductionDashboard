@@ -167,7 +167,7 @@ export function OverviewView() {
         </div>
       </div>
 
-      <AlarmBar areas={areas} />
+      <AlarmBar areas={areas} status={status} now={now} />
     </main>
   );
 }

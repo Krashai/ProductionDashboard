@@ -5,6 +5,7 @@ import { Wallboard } from '@/components/Wallboard';
 import { AREAS } from '@/lib/areas';
 import { ROTATION_TIME_MS } from '@/hooks/useCarousel';
 import { useAreasData } from '@/hooks/useAreasData';
+import { markAllOffline } from '@/lib/backend/mapPayload';
 import { generateSnapshot } from '@/lib/mock/generateSnapshot';
 import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot } from '@/lib/types';
@@ -415,5 +416,53 @@ describe('Wallboard — layout kiosku bez scrolla', () => {
     const contentWrapper = root.children[0] as HTMLElement;
     expect(contentWrapper).toHaveClass('flex-1');
     expect(contentWrapper).toHaveClass('min-h-0');
+  });
+});
+
+describe('Wallboard — komunikaty o stanie danych (okno wstrzymania)', () => {
+  test('po utracie WS pasek u dołu pokazuje chip połączenia zamiast "Wszystko OK"', () => {
+    mockedUseAreasData.mockReturnValue({
+      areas: markAllOffline(buildDefaultAreas()),
+      status: 'offline',
+      lastEventAt: new Date(),
+    });
+    render(<Wallboard />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Wznawianie połączenia — dane sprzed');
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+  });
+
+  test('pasek odlicza wiek danych razem z zegarem i po oknie przechodzi w "Brak połączenia"', () => {
+    mockedUseAreasData.mockReturnValue({
+      areas: markAllOffline(buildDefaultAreas()),
+      status: 'offline',
+      lastEventAt: new Date(),
+    });
+    render(<Wallboard />);
+
+    act(() => {
+      vi.advanceTimersByTime(STALE_HOLD_MS + 5000);
+    });
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Brak połączenia od 2 min');
+  });
+
+  test('kropka alarmu w navbarze zostaje przy nieaktualnym obszarze (ostatnia znana wartość, jak kafel), a chip alarmu na pasku jest ukryty', () => {
+    const areas = buildDefaultAreas().map((area) =>
+      area.id === 'chlodnia-2'
+        ? {
+            ...area,
+            isOnline: false,
+            lastFreshAt: Date.now() - 30_000,
+            metrics: area.metrics.map((m) => (m.id === 'chlodnia-2-temp' ? { ...m, alarm: true } : m)),
+          }
+        : area
+    );
+    mockedUseAreasData.mockReturnValue({ areas, status: 'live', lastEventAt: new Date() });
+    render(<Wallboard />);
+
+    expect(screen.getByTestId('nav-alarm-indicator-chlodnia-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('alarm-chip-chlodnia-2-chlodnia-2-temp')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-chip-area-chlodnia-2')).toHaveTextContent('Chłodnia 2 — brak odświeżania od');
   });
 });
