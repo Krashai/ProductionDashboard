@@ -21,6 +21,11 @@ export interface InvalidMetricReport {
 }
 
 export interface MapAreasPayloadOptions {
+  /** Moment odbioru ramki na zegarze klienta (epoch ms). Wymagany i podawany
+   * z zewnątrz, bo mapper ma zostać czysty — sam nie czyta zegara. Gdyby był
+   * opcjonalny, pominięcie go przy podpinaniu po cichu zostawiłoby
+   * `lastFreshAt` puste i cały wallboard szarzałby od razu po utracie danych. */
+  receivedAt: number;
   historyLength?: number;
   /** Called once per metric that failed validation, so the transport layer
    * can log it. The mapper stays pure with respect to its return value —
@@ -44,7 +49,7 @@ export interface MapAreasPayloadOptions {
 export function mapAreasPayload(
   payload: BackendStateUpdate,
   previous: AreaSnapshot[],
-  opts: MapAreasPayloadOptions = {}
+  opts: MapAreasPayloadOptions
 ): AreaSnapshot[] {
   const historyLength = opts.historyLength ?? DEFAULT_HISTORY_LENGTH;
   const backendAreaById = new Map(payload.areas.map((area) => [area.area_id, area]));
@@ -60,6 +65,7 @@ export function mapAreasPayload(
 
     return mapArea(areaDef, backendArea, previousSnapshot, {
       timestamp: payload.timestamp,
+      receivedAt: opts.receivedAt,
       historyLength,
       onInvalidMetric: opts.onInvalidMetric,
     });
@@ -71,10 +77,12 @@ function carryForwardOffline(
   previousSnapshot: AreaSnapshot | undefined
 ): AreaSnapshot {
   if (previousSnapshot) {
+    // `lastFreshAt` zostaje z poprzedniej ramki (spread) — to od niego liczy
+    // się okno wstrzymania wartości na ekranie.
     return {
       ...previousSnapshot,
       isOnline: false,
-      metrics: previousSnapshot.metrics.map((metric) => ({ ...metric })),
+      metrics: previousSnapshot.metrics.map(offlineMetric),
     };
   }
 
@@ -85,7 +93,15 @@ function carryForwardOffline(
     metrics: areaDef.metrics.map((metricDef) => zeroedMetric(metricDef)),
     lastSeenAt: null,
     isOnline: false,
+    lastFreshAt: null,
   };
+}
+
+/** Kopia metryki z `online: false`, wartość/historia/alarm bez zmian. Bez tego
+ * (Z2) Sprężarkownia ignorowała utratę WS: jej kafle patrzą na `metric.online`
+ * z OSTATNIEJ ramki, więc po zerwaniu połączenia dalej uchodziły za żywe. */
+function offlineMetric(metric: Metric): Metric {
+  return { ...metric, online: false };
 }
 
 function zeroedMetric(metricDef: MetricDefinition): Metric {
@@ -120,6 +136,7 @@ function validateMetric(
 
 interface MapAreaContext {
   timestamp: string;
+  receivedAt: number;
   historyLength: number;
   onInvalidMetric: ((report: InvalidMetricReport) => void) | undefined;
 }
@@ -179,6 +196,10 @@ function mapArea(
     metrics,
     lastSeenAt: ctx.timestamp,
     isOnline: backendArea.online,
+    // Świeży znacznik tylko dla obszaru online; offline trzyma poprzedni
+    // (albo null, gdy nigdy nie miał danych) — wiek rośnie od ostatniej
+    // ramki, w której obszar naprawdę odpowiadał.
+    lastFreshAt: backendArea.online ? ctx.receivedAt : (previousSnapshot?.lastFreshAt ?? null),
     extraAlarms: mapExtraAlarms(areaDef, backendArea),
   };
 }
@@ -195,11 +216,13 @@ function mapExtraAlarms(areaDef: AreaDefinition, backendArea: BackendArea): Extr
     .map((entry) => ({ metricId: entry.metric_id, label: entry.label, description: entry.description }));
 }
 
-/** Pure: never mutates `snapshots`, always returns new area + metric objects. */
+/** Pure: never mutates `snapshots`, always returns new area + metric objects.
+ * Wartości, historia i `lastFreshAt` zostają — ekran trzyma je przez okno
+ * wstrzymania, a po jego upływie sam decyduje o szarości. */
 export function markAllOffline(snapshots: AreaSnapshot[]): AreaSnapshot[] {
   return snapshots.map((snapshot) => ({
     ...snapshot,
     isOnline: false,
-    metrics: snapshot.metrics.map((metric) => ({ ...metric })),
+    metrics: snapshot.metrics.map(offlineMetric),
   }));
 }

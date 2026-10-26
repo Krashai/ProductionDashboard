@@ -5,7 +5,9 @@ import { Wallboard } from '@/components/Wallboard';
 import { AREAS } from '@/lib/areas';
 import { ROTATION_TIME_MS } from '@/hooks/useCarousel';
 import { useAreasData } from '@/hooks/useAreasData';
+import { markAllOffline } from '@/lib/backend/mapPayload';
 import { generateSnapshot } from '@/lib/mock/generateSnapshot';
+import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot } from '@/lib/types';
 
 vi.mock('next/navigation', () => ({
@@ -41,9 +43,14 @@ function buildDefaultAreas(): AreaSnapshot[] {
 
 // Nadpisuje isOnline pojedynczego obszaru w domyślnym zestawie snapshotów —
 // reszta zostaje bez zmian, żeby testy niezwiązane ze statusem nie musiały o tym wiedzieć.
-function setAreaOnlineState(areaId: string, isOnline: boolean) {
+// Domyślnie offline'owy obszar jest już PO oknie wstrzymania (`lastFreshAt: null`
+// = nigdy nie miał świeżych danych); `lastFreshAt` pozwala ustawić wiek danych,
+// gdy test sprawdza samo okno wstrzymania.
+function setAreaOnlineState(areaId: string, isOnline: boolean, lastFreshAt: number | null = null) {
   mockedUseAreasData.mockReturnValue({
-    areas: buildDefaultAreas().map((area) => (area.id === areaId ? { ...area, isOnline } : area)),
+    areas: buildDefaultAreas().map((area) =>
+      area.id === areaId ? { ...area, isOnline, lastFreshAt: isOnline ? area.lastFreshAt : lastFreshAt } : area
+    ),
     status: 'live',
     lastEventAt: new Date(),
   });
@@ -139,8 +146,33 @@ describe('Wallboard — tryb carousel (?mode=carousel)', () => {
     expect(screen.getByText('Obszar online')).toBeInTheDocument();
   });
 
-  test('nagłówek aktywnego obszaru pokazuje StatusBadge offline, gdy obszar przechodzi w stan offline', () => {
-    setAreaOnlineState(AREAS[0].id, false);
+  test('nagłówek aktywnego obszaru pokazuje StatusBadge offline, gdy obszar jest offline po oknie wstrzymania', () => {
+    setAreaOnlineState(AREAS[0].id, false, Date.now() - STALE_HOLD_MS);
+    render(<Wallboard />);
+    expect(screen.getByText('Obszar offline')).toBeInTheDocument();
+  });
+
+  test('w oknie wstrzymania obszar nie dostaje czerwonej kropki offline (kafle trzymają ostatnie wartości)', () => {
+    setAreaOnlineState(AREAS[0].id, false, Date.now() - 30_000);
+    render(<Wallboard />);
+    expect(screen.queryByText('Obszar offline')).not.toBeInTheDocument();
+    expect(screen.getByText('Obszar bez świeżych danych')).toBeInTheDocument();
+  });
+
+  test('obszar offline od 30 s po upływie okna wstrzymania sam przechodzi w offline (tykanie zegara)', () => {
+    setAreaOnlineState(AREAS[0].id, false, Date.now() - 30_000);
+    render(<Wallboard />);
+    expect(screen.queryByText('Obszar offline')).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(STALE_HOLD_MS - 30_000 + 1000);
+    });
+
+    expect(screen.getByText('Obszar offline')).toBeInTheDocument();
+  });
+
+  test('wallboard bez żadnej ramki (lastFreshAt=null) od razu pokazuje obszar jako offline, nigdy nie "trzyma zer"', () => {
+    setAreaOnlineState(AREAS[0].id, false, null);
     render(<Wallboard />);
     expect(screen.getByText('Obszar offline')).toBeInTheDocument();
   });
@@ -196,9 +228,9 @@ describe('Wallboard — tryb pinned (?area=...)', () => {
     expect(screen.getByText('Obszar online')).toBeInTheDocument();
   });
 
-  test('nagłówek przypiętego obszaru pokazuje StatusBadge offline, gdy obszar przechodzi w stan offline', () => {
+  test('nagłówek przypiętego obszaru pokazuje StatusBadge offline, gdy obszar jest offline po oknie wstrzymania', () => {
     setSearchParams('area=chlodnia-2');
-    setAreaOnlineState('chlodnia-2', false);
+    setAreaOnlineState('chlodnia-2', false, Date.now() - STALE_HOLD_MS);
     render(<Wallboard />);
     expect(screen.getByText('Obszar offline')).toBeInTheDocument();
   });
@@ -384,5 +416,53 @@ describe('Wallboard — layout kiosku bez scrolla', () => {
     const contentWrapper = root.children[0] as HTMLElement;
     expect(contentWrapper).toHaveClass('flex-1');
     expect(contentWrapper).toHaveClass('min-h-0');
+  });
+});
+
+describe('Wallboard — komunikaty o stanie danych (okno wstrzymania)', () => {
+  test('po utracie WS pasek u dołu pokazuje chip połączenia zamiast "Wszystko OK"', () => {
+    mockedUseAreasData.mockReturnValue({
+      areas: markAllOffline(buildDefaultAreas()),
+      status: 'offline',
+      lastEventAt: new Date(),
+    });
+    render(<Wallboard />);
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Wznawianie połączenia — dane sprzed');
+    expect(screen.queryByText('Wszystko OK')).not.toBeInTheDocument();
+  });
+
+  test('pasek odlicza wiek danych razem z zegarem i po oknie przechodzi w "Brak połączenia"', () => {
+    mockedUseAreasData.mockReturnValue({
+      areas: markAllOffline(buildDefaultAreas()),
+      status: 'offline',
+      lastEventAt: new Date(),
+    });
+    render(<Wallboard />);
+
+    act(() => {
+      vi.advanceTimersByTime(STALE_HOLD_MS + 5000);
+    });
+
+    expect(screen.getByTestId('status-chip-connection')).toHaveTextContent('Brak połączenia od 2 min');
+  });
+
+  test('kropka alarmu w navbarze zostaje przy nieaktualnym obszarze (ostatnia znana wartość, jak kafel), a chip alarmu na pasku jest ukryty', () => {
+    const areas = buildDefaultAreas().map((area) =>
+      area.id === 'chlodnia-2'
+        ? {
+            ...area,
+            isOnline: false,
+            lastFreshAt: Date.now() - 30_000,
+            metrics: area.metrics.map((m) => (m.id === 'chlodnia-2-temp' ? { ...m, alarm: true } : m)),
+          }
+        : area
+    );
+    mockedUseAreasData.mockReturnValue({ areas, status: 'live', lastEventAt: new Date() });
+    render(<Wallboard />);
+
+    expect(screen.getByTestId('nav-alarm-indicator-chlodnia-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('alarm-chip-chlodnia-2-chlodnia-2-temp')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-chip-area-chlodnia-2')).toHaveTextContent('Chłodnia 2 — brak odświeżania od');
   });
 });

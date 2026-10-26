@@ -2,6 +2,7 @@ import { DeviceStatusTile } from '@/components/DeviceStatusTile';
 import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { OverviewTankTile } from '@/components/OverviewTankTile';
 import { PUMP_GROUP_ID, deriveDeviceGroupStatuses, isCoolingShutdown } from '@/lib/device-status';
+import { areaDataState } from '@/lib/staleness';
 import { cn } from '@/lib/utils';
 import type { AreaDefinition } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
@@ -9,6 +10,8 @@ import type { AreaSnapshot } from '@/lib/types';
 interface CoolingAreaViewProps {
   area: AreaSnapshot;
   definition: AreaDefinition;
+  /** Czas klienta do oceny wieku danych; patrz `AreaView`. */
+  now?: number;
 }
 
 // Tailwind skanuje źródła statycznie — klasy muszą istnieć dosłownie (ten
@@ -31,8 +34,10 @@ const PUMP_ROW_GRID_CLASSES: Record<number, string> = {
  * której Chłodnia 2/3 nie mają — `definition.deviceGroups` steruje tym
  * różnicowaniem, więc ten komponent zostaje jeden dla wszystkich trzech.
  */
-export function CoolingAreaView({ area, definition }: CoolingAreaViewProps) {
-  const offline = !area.isOnline;
+export function CoolingAreaView({ area, definition, now = Date.now() }: CoolingAreaViewProps) {
+  // Szarość i "—" dopiero po oknie wstrzymania (`unavailable`), nie od razu
+  // po `isOnline: false` — w oknie kafle trzymają ostatnie wartości.
+  const offline = areaDataState(area, now) === 'unavailable';
   const tempMetric = area.metrics.find((m) => m.id === `${definition.id}-temp`);
   const pressureMetric = area.metrics.find((m) => m.id === `${definition.id}-pressure`);
   const levelMetric = area.metrics.find((m) => m.id === `${definition.id}-level`);

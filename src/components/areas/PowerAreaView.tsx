@@ -9,12 +9,15 @@ import {
   VOLTAGE_DEVIATION_FULL_SCALE,
   computePhaseDeviations,
 } from '@/lib/phase-balance';
+import { areaDataState } from '@/lib/staleness';
 import type { AreaDefinition } from '@/lib/areas';
 import type { AreaSnapshot, Metric } from '@/lib/types';
 
 interface PowerAreaViewProps {
   area: AreaSnapshot;
   definition: AreaDefinition;
+  /** Czas klienta do oceny wieku danych; patrz `AreaView`. */
+  now?: number;
 }
 
 const SUBSTATIONS = [1, 2, 3];
@@ -142,8 +145,9 @@ function buildGroupsForSubstation(n: number, metricsById: Map<string, Metric>): 
  * `CompressorAreaView`) — grupowanie działa bezpośrednio na `area.metrics` po
  * prefiksie id (`trafostacja-{n}-*`), nie potrzebuje `AreaDefinition.metrics`.
  */
-export function PowerAreaView({ area }: PowerAreaViewProps) {
-  const offline = !area.isOnline;
+export function PowerAreaView({ area, now = Date.now() }: PowerAreaViewProps) {
+  // Szarość dopiero po oknie wstrzymania — patrz `areaDataState`.
+  const offline = areaDataState(area, now) === 'unavailable';
   const metricsById = new Map(area.metrics.map((metric) => [metric.id, metric]));
 
   return (

@@ -39,6 +39,12 @@ export interface AreaSnapshot {
   metrics: Metric[];
   lastSeenAt: string | null;
   isOnline: boolean;
+  /** Epoch ms (zegar PRZEGLĄDARKI) ostatniej ramki, w której ten obszar był
+   * online; `null` = nigdy nie dostaliśmy z niego danych. Pole wyłącznie
+   * frontendowe — nie ma go w protokole WS. Celowo osobne od `lastSeenAt`:
+   * to jest znacznik czasu backendu (zegar Pi), a Pi i przeglądarka nie są
+   * zsynchronizowane, więc wiek danych liczymy tylko z tego pola. */
+  lastFreshAt: number | null;
   extraAlarms?: ExtraAlarm[];
 }
 

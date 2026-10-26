@@ -17,7 +17,7 @@ describe('generateSnapshot', () => {
     });
 
     expect(Object.keys(snapshot).sort()).toEqual(
-      ['id', 'isOnline', 'lastSeenAt', 'metrics', 'name', 'type'].sort()
+      ['id', 'isOnline', 'lastFreshAt', 'lastSeenAt', 'metrics', 'name', 'type'].sort()
     );
     expect(snapshot.id).toBe(coolingArea.id);
     expect(snapshot.name).toBe(coolingArea.name);
@@ -33,6 +33,17 @@ describe('generateSnapshot', () => {
       expect(Array.isArray(metric.history)).toBe(true);
       expect(typeof metric.alarm).toBe('boolean');
     }
+  });
+
+  test('mock jest zawsze żywy: lastFreshAt to moment wygenerowania ramki (zegar `now`)', () => {
+    const generatedAt = new Date('2026-10-26T10:00:00.000Z');
+
+    const snapshot = generateSnapshot(coolingArea, {
+      random: constantRandom(0.5),
+      now: () => generatedAt,
+    });
+
+    expect(snapshot.lastFreshAt).toBe(generatedAt.getTime());
   });
 
   test('temperatura chłodni mieści się w zakresie ~2-8°C', () => {

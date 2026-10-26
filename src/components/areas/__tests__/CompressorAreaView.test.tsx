@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { CompressorAreaView } from '@/components/areas/CompressorAreaView';
 import type { AreaDefinition, DeviceGroupDefinition } from '@/lib/areas';
+import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot, Metric } from '@/lib/types';
 
 // Patrz uzasadnienie w CoolingAreaView.test.tsx — rAF nie odpala synchronicznie w jsdom.
@@ -114,6 +115,7 @@ function snapshot(overrides: Partial<AreaSnapshot> = {}): AreaSnapshot {
     type: 'compressor',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: [...baseAnalogMetrics(), ...runningDeviceMetrics()],
     ...overrides,
   };
@@ -323,5 +325,63 @@ describe('CompressorAreaView', () => {
         /(^|\s)2xl:w-16(\s|$)/
       );
     });
+  });
+});
+
+describe('CompressorAreaView — okno wstrzymania ostatnich wartości (per sekcja / per PLC)', () => {
+  const NOW = 1_700_000_000_000;
+  const ALU_CARD = 'metric-card-sprezarkownia-magazyn-aluminium-cisnienie-zbiornik';
+  const BEBNY_CARD = 'metric-card-sprezarkownia-magazyn-bebnow-cisnienie-zbiornik';
+  const GREY = /grayscale-\[0\.5\]/;
+
+  /** PLC Aluminium martwy, ale wartość ZOSTAJE (to ostatnia znana — mapper
+   * trzyma ją, gdy backend przysyła null); w `withOffline` zerujemy ją, co
+   * tu zafałszowałoby test "trzyma ostatnią wartość". */
+  function aluminiumPlcDown(): Metric[] {
+    return [...baseAnalogMetrics(), ...runningDeviceMetrics()].map((m) =>
+      m.id === 'sprezarkownia-magazyn-aluminium-cisnienie-zbiornik' ? { ...m, online: false } : m
+    );
+  }
+
+  test('martwy PLC w oknie wstrzymania: kafle jego sekcji trzymają wartości, bez szarości', () => {
+    const area = snapshot({ metrics: aluminiumPlcDown(), isOnline: false, lastFreshAt: NOW - 30_000 });
+
+    const { container, getByText } = render(<CompressorAreaView area={area} definition={definition} now={NOW} />);
+
+    expect(container.querySelector(`[data-testid="${ALU_CARD}"]`)?.className).not.toMatch(GREY);
+    expect(container.querySelector('[data-testid="device-tile-aluminium-1"]')?.className).not.toMatch(GREY);
+    expect(getByText('7.00', { selector: `[data-testid="${ALU_CARD}"] .font-mono` })).toBeInTheDocument();
+  });
+
+  test('martwy PLC po oknie: szarzeje TYLKO jego sekcja, sekcja żywego PLC zostaje normalna', () => {
+    const area = snapshot({ metrics: aluminiumPlcDown(), isOnline: false, lastFreshAt: NOW - STALE_HOLD_MS });
+
+    const { container } = render(<CompressorAreaView area={area} definition={definition} now={NOW} />);
+
+    expect(container.querySelector(`[data-testid="${ALU_CARD}"]`)?.className).toMatch(GREY);
+    expect(container.querySelector('[data-testid="device-tile-aluminium-1"]')?.className).toMatch(GREY);
+    expect(container.querySelector(`[data-testid="${BEBNY_CARD}"]`)?.className).not.toMatch(GREY);
+    expect(container.querySelector('[data-testid="device-tile-bebny-1"]')?.className).not.toMatch(GREY);
+  });
+
+  test('utrata całego WS (markAllOffline: wszystkie metryki online=false) w oknie nie szarzeje żadnej sekcji (Z2)', () => {
+    const allOffline = [...baseAnalogMetrics(), ...runningDeviceMetrics()].map((m) => ({ ...m, online: false }));
+    const area = snapshot({ metrics: allOffline, isOnline: false, lastFreshAt: NOW - 10_000 });
+
+    const { container } = render(<CompressorAreaView area={area} definition={definition} now={NOW} />);
+
+    expect(container.querySelector(`[data-testid="${ALU_CARD}"]`)?.className).not.toMatch(GREY);
+    expect(container.querySelector(`[data-testid="${BEBNY_CARD}"]`)?.className).not.toMatch(GREY);
+  });
+
+  test('utrata całego WS po oknie szarzeje obie sekcje (Z2: wcześniej Sprężarkownia ignorowała utratę WS)', () => {
+    const allOffline = [...baseAnalogMetrics(), ...runningDeviceMetrics()].map((m) => ({ ...m, online: false }));
+    const area = snapshot({ metrics: allOffline, isOnline: false, lastFreshAt: NOW - 3 * 60_000 });
+
+    const { container } = render(<CompressorAreaView area={area} definition={definition} now={NOW} />);
+
+    expect(container.querySelector(`[data-testid="${ALU_CARD}"]`)?.className).toMatch(GREY);
+    expect(container.querySelector(`[data-testid="${BEBNY_CARD}"]`)?.className).toMatch(GREY);
+    expect(container.querySelector('[data-testid="device-tile-bebny-2"]')?.className).toMatch(GREY);
   });
 });

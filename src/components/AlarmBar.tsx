@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { ConnectionStatus } from '@/hooks/useAreasData';
 import { AREAS } from '@/lib/areas';
 import { coolingSuppressedAlarmMetricIds } from '@/lib/device-status';
+import { collectStatusNotices, type StatusNotice } from '@/lib/status-notices';
 import { cn } from '@/lib/utils';
 import type { AlarmState, AreaSnapshot } from '@/lib/types';
 
 interface AlarmBarProps {
   areas: AreaSnapshot[];
+  /** Stan połączenia WS — gdy nie jest `live`, pasek nie może twierdzić, że
+   * "Wszystko OK" (patrz `collectStatusNotices`). */
+  status: ConnectionStatus;
+  /** Czas klienta (epoch ms) z `useNow` — z niego liczy się wiek danych. */
+  now: number;
   className?: string;
 }
 
@@ -54,11 +61,49 @@ export function collectAlarms(areas: AreaSnapshot[]): AlarmState[] {
   });
 }
 
+// Wspólna baza chipów (alarm i komunikat o stanie danych) — ten sam rozmiar i
+// typografia, żeby pasek wyglądał jak jedna rodzina.
+const CHIP_BASE_CLASSES =
+  'flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest whitespace-nowrap';
+
+// Bursztyn = "czekamy / dane przestarzałe, ale jeszcze wiarygodne" (okno
+// wstrzymania, łączenie); róż = "dane niedostępne" (jak chip alarmu, ale BEZ
+// pulsowania — to stan, nie alarm, i nie ma zwracać uwagi migotaniem).
+const NOTICE_TONE_CLASSES: Record<StatusNotice['tone'], string> = {
+  amber: 'bg-amber-50 border-amber-100 text-amber-800',
+  rose: 'bg-rose-50 border-rose-200 text-rose-800',
+};
+
+function StatusChip({ notice }: { notice: StatusNotice }) {
+  return (
+    <span
+      data-testid={notice.testId}
+      className={cn(CHIP_BASE_CLASSES, NOTICE_TONE_CLASSES[notice.tone])}
+    >
+      {notice.showsAge ? (
+        <>
+          {/* Pasek jest `aria-live="polite"`: tekst z wiekiem zmienia się co
+           * sekundę i czytnik ekranu odczytywałby go bez końca. Widoczny tekst
+           * jest więc ukryty przed czytnikiem, a ten dostaje stałą etykietę
+           * fazy — ogłaszana jest tylko jej zmiana (np. po upływie okna). */}
+          <span aria-hidden="true">{notice.text}</span>
+          <span className="sr-only">{notice.srLabel}</span>
+        </>
+      ) : (
+        notice.text
+      )}
+    </span>
+  );
+}
+
 function AlarmChip({ alarm }: { alarm: AlarmState }) {
   return (
     <span
       data-testid={`alarm-chip-${alarm.areaId}-${alarm.metricId}`}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest bg-rose-50 border-rose-200 text-rose-800 animate-pulse-subtle motion-reduce:animate-none whitespace-nowrap"
+      className={cn(
+        CHIP_BASE_CLASSES,
+        'bg-rose-50 border-rose-200 text-rose-800 animate-pulse-subtle motion-reduce:animate-none'
+      )}
     >
       {alarm.areaName} — {alarm.metricLabel}
       {alarm.description && <span className="font-bold normal-case tracking-normal">— {alarm.description}</span>}
@@ -66,14 +111,57 @@ function AlarmChip({ alarm }: { alarm: AlarmState }) {
   );
 }
 
-export function AlarmBar({ areas, className }: AlarmBarProps) {
-  const alarms = collectAlarms(areas);
+/**
+ * Obszar offline: zostają tylko alarmy metryk, których WŁASNY PLC jest online.
+ * Sprężarkownia ma dwa sterowniki, a `isOnline` obszaru to AND obu — gdy
+ * padnie jeden, alarm z drugiego jest prawdziwy i nie wolno go schować.
+ * Słowa awarii (`extraAlarms`) nie mają flagi per metryka, więc znikają razem
+ * z obszarem.
+ */
+function withoutStaleAlarms(area: AreaSnapshot): AreaSnapshot {
+  if (area.isOnline) return area;
+  return {
+    ...area,
+    metrics: area.metrics.filter((metric) => metric.online === true),
+    extraAlarms: [],
+  };
+}
 
-  // Klucz tożsamości zestawu alarmów (nie wartości metryk) — pomiar layoutu ma
-  // się przeliczać tylko wtedy, gdy alarm faktycznie się pojawił/zniknął, a
-  // nie przy każdym ticku WS zmieniającym samą wartość metryki. Bez tego
-  // przeliczalibyśmy scrollWidth na każdą klatkę danych z PLC.
-  const alarmsKey = alarms.map((alarm) => `${alarm.areaId}-${alarm.metricId}`).join('|');
+/** Chipy paska: najpierw komunikaty o stanie danych, potem alarmy. Renderowane
+ * dwa razy w tickerze (oryginał + kopia pętli), stąd osobny komponent. */
+function BarChips({ notices, alarms }: { notices: StatusNotice[]; alarms: AlarmState[] }) {
+  return (
+    <>
+      {notices.map((notice) => (
+        <StatusChip key={notice.key} notice={notice} />
+      ))}
+      {alarms.map((alarm) => (
+        <AlarmChip key={`${alarm.areaId}-${alarm.metricId}`} alarm={alarm} />
+      ))}
+    </>
+  );
+}
+
+export function AlarmBar({ areas, status, now, className }: AlarmBarProps) {
+  const notices = collectStatusNotices(areas, status, now);
+  // Komunikat o połączeniu zastępuje alarmy w całości (alarmy z ostatniej
+  // ramki są przestarzałe — decyzja użytkownika). Przy komunikacie o JEDNYM
+  // obszarze chowamy tylko alarmy tego obszaru: alarmy żywych obszarów są
+  // prawdziwe i ukrycie ich byłoby ukryciem realnej awarii.
+  const hasConnectionNotice = notices.some((notice) => notice.scope === 'connection');
+  const alarms = hasConnectionNotice ? [] : collectAlarms(areas.map(withoutStaleAlarms));
+  const hasItems = notices.length > 0 || alarms.length > 0;
+
+  // Klucz tożsamości zestawu chipów (nie wartości metryk, nie tykający wiek) —
+  // pomiar layoutu ma się przeliczać tylko wtedy, gdy chip faktycznie się
+  // pojawił/zniknął albo zmienił fazę (`notice.key` zawiera fazę, ale nie
+  // sekundy), a nie przy każdym ticku WS zmieniającym samą wartość metryki.
+  // Bez tego przeliczalibyśmy scrollWidth na każdą klatkę danych z PLC, a
+  // z wiekiem — co sekundę.
+  const alarmsKey = [
+    ...notices.map((notice) => notice.key),
+    ...alarms.map((alarm) => `${alarm.areaId}-${alarm.metricId}`),
+  ].join('|');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -164,7 +252,7 @@ export function AlarmBar({ areas, className }: AlarmBarProps) {
         aria-live="polite"
         className="max-w-[2400px] mx-auto px-6 2xl:px-10 py-3 2xl:py-4"
       >
-        {alarms.length === 0 ? (
+        {!hasItems ? (
           <span
             data-testid="alarm-chip-ok"
             className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest bg-emerald-50 border-emerald-100 text-emerald-700"
@@ -195,9 +283,7 @@ export function AlarmBar({ areas, className }: AlarmBarProps) {
               style={shouldAnimate ? { animationDuration: `${durationSeconds}s` } : undefined}
             >
               <div ref={trackRef} className="flex items-center gap-3 shrink-0">
-                {alarms.map((alarm) => (
-                  <AlarmChip key={`${alarm.areaId}-${alarm.metricId}`} alarm={alarm} />
-                ))}
+                <BarChips notices={notices} alarms={alarms} />
               </div>
               {shouldAnimate && (
                 <div
@@ -205,9 +291,7 @@ export function AlarmBar({ areas, className }: AlarmBarProps) {
                   data-testid="alarm-marquee-track-duplicate"
                   className="flex items-center gap-3 shrink-0"
                 >
-                  {alarms.map((alarm) => (
-                    <AlarmChip key={`${alarm.areaId}-${alarm.metricId}-dup`} alarm={alarm} />
-                  ))}
+                  <BarChips notices={notices} alarms={alarms} />
                 </div>
               )}
             </div>

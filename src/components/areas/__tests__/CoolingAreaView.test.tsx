@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { CoolingAreaView } from '@/components/areas/CoolingAreaView';
 import type { AreaDefinition, DeviceGroupDefinition } from '@/lib/areas';
+import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot, Metric } from '@/lib/types';
 
 // Patrz uzasadnienie w MetricCard.test.tsx — rAF nie odpala synchronicznie w jsdom.
@@ -84,6 +85,7 @@ function snapshot(overrides: Partial<AreaSnapshot> = {}): AreaSnapshot {
     type: 'cooling',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: baseMetrics(),
     ...overrides,
   };
@@ -146,7 +148,7 @@ describe('CoolingAreaView', () => {
     expect(tankBar).toHaveClass('animate-alarm-flash');
   });
 
-  test('isOnline===false propaguje offline do wszystkich kart obszaru', () => {
+  test('offline bez świeżych danych (lastFreshAt=null) propaguje offline do wszystkich kart obszaru', () => {
     const offlineSnapshot = snapshot({ isOnline: false });
     const { container } = render(<CoolingAreaView area={offlineSnapshot} definition={definition} />);
 
@@ -286,7 +288,7 @@ describe('CoolingAreaView', () => {
       });
     });
 
-    test('isOnline=false propaguje offline do kafli urządzeń', () => {
+    test('offline bez świeżych danych (lastFreshAt=null) propaguje offline do kafli urządzeń', () => {
       const withDevices = snapshot({ metrics: [...baseMetrics(), ...runningPumpMetrics()], isOnline: false });
       const { container } = render(<CoolingAreaView area={withDevices} definition={definitionWithDevices} />);
       const tile = container.querySelector('[data-testid="device-tile-v101"]');
@@ -413,5 +415,86 @@ describe('CoolingAreaView', () => {
       const tankBar = container.querySelector('[data-testid="tank-level-chlodnia-1-level"]');
       expect(tankBar).toHaveClass('animate-alarm-flash');
     });
+  });
+});
+
+describe('CoolingAreaView — okno wstrzymania ostatnich wartości', () => {
+  const NOW = 1_700_000_000_000;
+  const GREY = /grayscale-\[0\.5\]/;
+
+  function cards(container: HTMLElement) {
+    return [
+      container.querySelector('[data-testid="metric-card-chlodnia-1-temp"]'),
+      container.querySelector('[data-testid="metric-card-chlodnia-1-pressure"]'),
+      container.querySelector('[data-testid="tank-level-chlodnia-1-level"]'),
+      container.querySelector('[data-testid="device-tile-v101"]'),
+    ];
+  }
+
+  test('offline od 30 s (w oknie) trzyma ostatnie wartości i wygląda jak online', () => {
+    const held = snapshot({
+      isOnline: false,
+      lastFreshAt: NOW - 30_000,
+      metrics: [...baseMetrics(), ...runningPumpMetrics()],
+    });
+
+    const { container } = render(<CoolingAreaView area={held} definition={definitionWithDevices} now={NOW} />);
+
+    for (const card of cards(container)) {
+      expect(card).toBeInTheDocument();
+      expect(card?.className).not.toMatch(GREY);
+    }
+    expect(screen.getByText('5.0')).toBeInTheDocument();
+    expect(screen.getByText('7.00')).toBeInTheDocument();
+    expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+  });
+
+  test('ostatnia milisekunda okna wciąż trzyma wartości', () => {
+    const held = snapshot({ isOnline: false, lastFreshAt: NOW - (STALE_HOLD_MS - 1) });
+
+    const { container } = render(<CoolingAreaView area={held} definition={definition} now={NOW} />);
+
+    expect(cards(container)[0]?.className).not.toMatch(GREY);
+    expect(screen.getByText('5.0')).toBeInTheDocument();
+  });
+
+  test('offline od 3 min (po oknie) szarzeje i pokazuje "—"', () => {
+    const expired = snapshot({
+      isOnline: false,
+      lastFreshAt: NOW - 180_000,
+      metrics: [...baseMetrics(), ...runningPumpMetrics()],
+    });
+
+    const { container } = render(<CoolingAreaView area={expired} definition={definitionWithDevices} now={NOW} />);
+
+    for (const card of cards(container)) {
+      expect(card?.className).toMatch(GREY);
+    }
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText('5.0')).not.toBeInTheDocument();
+  });
+
+  test('obszar, który nigdy nie miał danych (lastFreshAt=null, zera z mappera), pokazuje "—" zamiast zer', () => {
+    const zeroed = snapshot({
+      isOnline: false,
+      lastFreshAt: null,
+      metrics: baseMetrics().map((m) => ({ ...m, value: 0, history: [] })),
+    });
+
+    const { container } = render(<CoolingAreaView area={zeroed} definition={definition} now={NOW} />);
+
+    expect(cards(container)[0]?.className).toMatch(GREY);
+    expect(screen.getAllByText('—')).toHaveLength(3);
+    expect(screen.queryByText('0.0')).not.toBeInTheDocument();
+    expect(screen.queryByText('0.00')).not.toBeInTheDocument();
+  });
+
+  test('obszar online ignoruje wiek lastFreshAt', () => {
+    const live = snapshot({ isOnline: true, lastFreshAt: NOW - 10 * STALE_HOLD_MS });
+
+    const { container } = render(<CoolingAreaView area={live} definition={definition} now={NOW} />);
+
+    expect(cards(container)[0]?.className).not.toMatch(GREY);
   });
 });
