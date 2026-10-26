@@ -412,3 +412,241 @@ describe('createWebSocketAdapter — diagnostyka odrzuconych danych', () => {
     unsubscribe();
   });
 });
+
+describe('createWebSocketAdapter — utrata danych i odzyskiwanie połączenia', () => {
+  const T0 = new Date('2026-10-26T10:00:00.000Z').getTime();
+
+  function setVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  }
+
+  afterEach(() => {
+    setVisibility('visible');
+  });
+
+  test('ramka dostaje lastFreshAt z wstrzykniętego zegara `now`', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, now: () => 424242 });
+
+    const unsubscribe = adapter.subscribe(listener);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+
+    const snapshots = listener.mock.calls[0][0] as AreaSnapshot[];
+    expect(snapshots.every((s) => s.lastFreshAt === 424242)).toBe(true);
+    unsubscribe();
+  });
+
+  test('zamknięcie połączenia emituje ostatnie snapshoty jako offline (z wartościami i lastFreshAt), ZANIM zgłosi status offline', () => {
+    vi.setSystemTime(T0);
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const onStatus = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory });
+
+    const unsubscribe = adapter.subscribe(listener, onStatus);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+    listener.mockClear();
+    onStatus.mockClear();
+
+    vi.setSystemTime(T0 + 5000);
+    sockets[0].onclose?.();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    const snapshots = listener.mock.calls[0][0] as AreaSnapshot[];
+    expect(snapshots.every((s) => !s.isOnline)).toBe(true);
+    expect(snapshots.every((s) => s.lastFreshAt === T0)).toBe(true);
+    expect(snapshots[0].metrics.every((m) => m.value === 1 && m.online === false)).toBe(true);
+    expect(onStatus).toHaveBeenCalledWith('offline');
+    expect(listener.mock.invocationCallOrder[0]).toBeLessThan(onStatus.mock.invocationCallOrder[0]);
+    unsubscribe();
+  });
+
+  test('zamknięcie połączenia przed pierwszą ramką tylko zgłasza offline (nie ma czego emitować)', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const onStatus = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory });
+
+    const unsubscribe = adapter.subscribe(listener, onStatus);
+    sockets[0].onclose?.();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(onStatus).toHaveBeenCalledWith('offline');
+    unsubscribe();
+  });
+
+  test('onerror i następujące po nim onclose emitują offline tylko raz', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory });
+
+    const unsubscribe = adapter.subscribe(listener);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+    listener.mockClear();
+
+    // Przeglądarka odpala najpierw error, potem close tego samego gniazda.
+    sockets[0].onerror?.();
+    sockets[0].onclose?.();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  test('lastFreshAt przeżywa cykle reconnectu — kolejne zerwanie bez ramek nie zeruje ani nie odświeża znacznika', () => {
+    vi.setSystemTime(T0);
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const adapter = createWebSocketAdapter({
+      socketFactory: factory,
+      baseBackoffMs: 1000,
+      jitter: () => 1,
+      staleTimeoutMs: 60000,
+    });
+
+    const unsubscribe = adapter.subscribe(listener);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+    sockets[0].onclose?.();
+    vi.advanceTimersByTime(1000); // reconnect → sockets[1], bez żadnej ramki
+    listener.mockClear();
+
+    sockets[1].onclose?.();
+
+    const snapshots = listener.mock.calls[0][0] as AreaSnapshot[];
+    expect(snapshots.every((s) => s.lastFreshAt === T0)).toBe(true);
+    unsubscribe();
+  });
+
+  test('po reconnecie pierwsza ramka odświeża lastFreshAt', () => {
+    vi.setSystemTime(T0);
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, baseBackoffMs: 1000, jitter: () => 1 });
+
+    const unsubscribe = adapter.subscribe(listener);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+    sockets[0].onclose?.();
+    vi.setSystemTime(T0 + 30000);
+    vi.advanceTimersByTime(1000);
+    sockets[1].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+
+    const snapshots = listener.mock.lastCall![0] as AreaSnapshot[];
+    expect(snapshots.every((s) => s.isOnline && s.lastFreshAt === T0 + 31000)).toBe(true);
+    unsubscribe();
+  });
+
+  test('watchdog zatrzymanego połączenia zamyka gniazdo (bez podwójnego zdarzenia) i planuje reconnect (P4)', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const listener = vi.fn();
+    const onStatus = vi.fn();
+    const adapter = createWebSocketAdapter({
+      socketFactory: factory,
+      staleTimeoutMs: 10000,
+      baseBackoffMs: 1000,
+      jitter: () => 1,
+    });
+
+    const unsubscribe = adapter.subscribe(listener, onStatus);
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+    listener.mockClear();
+
+    vi.advanceTimersByTime(10000);
+
+    expect(sockets[0].closeCalls).toBe(1);
+    // Handlery odpięte PRZED close() — inaczej onclose zadziałałoby drugi raz.
+    expect(sockets[0].onclose).toBeNull();
+    expect(sockets[0].onerror).toBeNull();
+    expect(sockets[0].onmessage).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenLastCalledWith('offline');
+    expect(sockets).toHaveLength(1);
+
+    vi.advanceTimersByTime(999);
+    expect(sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(sockets).toHaveLength(2);
+    unsubscribe();
+  });
+
+  test('zdarzenie `online` przeglądarki przerywa backoff i łączy od razu, gdy nie jesteśmy live', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    // Długi staleTimeout, żeby watchdog nowego gniazda nie wpadł w okno testu.
+    const adapter = createWebSocketAdapter({
+      socketFactory: factory,
+      baseBackoffMs: 30000,
+      staleTimeoutMs: 120000,
+      jitter: () => 1,
+    });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onclose?.(); // backoff 30 s
+    expect(sockets).toHaveLength(1);
+
+    window.dispatchEvent(new Event('online'));
+
+    expect(sockets).toHaveLength(2);
+    // Stary timer backoffu został skasowany — nie ma trzeciego gniazda.
+    vi.advanceTimersByTime(60000);
+    expect(sockets).toHaveLength(2);
+    unsubscribe();
+  });
+
+  test('zdarzenie `online` nic nie robi, gdy połączenie jest żywe', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const adapter = createWebSocketAdapter({ socketFactory: factory });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onmessage?.({ data: JSON.stringify(makeStateUpdate()) });
+
+    window.dispatchEvent(new Event('online'));
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].closeCalls).toBe(0);
+    unsubscribe();
+  });
+
+  test('powrót karty na pierwszy plan (visibilitychange → visible) łączy od razu, gdy nie jesteśmy live', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, baseBackoffMs: 30000, jitter: () => 1 });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onclose?.();
+
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(sockets).toHaveLength(1);
+
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(sockets).toHaveLength(2);
+    unsubscribe();
+  });
+
+  test('po unsubscribe zdarzenia `online` i visibilitychange nie łączą ponownie', () => {
+    const { factory, sockets } = createFakeSocketFactory();
+    const adapter = createWebSocketAdapter({ socketFactory: factory, baseBackoffMs: 30000, jitter: () => 1 });
+
+    const unsubscribe = adapter.subscribe(vi.fn());
+    sockets[0].onclose?.();
+    unsubscribe();
+
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(sockets).toHaveLength(1);
+  });
+
+  test('unsubscribe zdejmuje oba nasłuchy z window/document', () => {
+    const { factory } = createFakeSocketFactory();
+    const windowRemove = vi.spyOn(window, 'removeEventListener');
+    const documentRemove = vi.spyOn(document, 'removeEventListener');
+    const adapter = createWebSocketAdapter({ socketFactory: factory });
+
+    adapter.subscribe(vi.fn())();
+
+    expect(windowRemove).toHaveBeenCalledWith('online', expect.any(Function));
+    expect(documentRemove).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    windowRemove.mockRestore();
+    documentRemove.mockRestore();
+  });
+});
