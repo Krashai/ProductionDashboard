@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { Logo } from '@/components/brand/Logo';
 import { LINEFLOW_LOGO } from '@/components/brand/lineflow-logo.generated';
 
-// Granice losowego odstępu do mrugnięcia i czas mrugnięcia (Logo.tsx).
+// Granice losowego odstępu do mrugnięcia i czas mrugnięcia (wink-timeline.ts).
 const MIN_DELAY_MS = 60_000;
 const MAX_DELAY_MS = 180_000;
 const WINK_DURATION_MS = 1_600;
@@ -81,6 +81,23 @@ describe('Logo', () => {
     expect(logo).not.toHaveAttribute('data-wink');
     act(() => vi.advanceTimersByTime(MIN_DELAY_MS));
     expect(logo).toHaveAttribute('data-wink');
+  });
+
+  test('dwa logo z wink mrugają w tej samej chwili i dzielą jeden timer', () => {
+    mockReducedMotion(false);
+    // Przy osobnych pętlach każde logo wylosowałoby własny odstęp (min / maks).
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(1);
+    render(
+      <>
+        <Logo wink label="Pierwsze" />
+        <Logo wink label="Drugie" />
+      </>,
+    );
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(MIN_DELAY_MS));
+    expect(screen.getByRole('img', { name: 'Pierwsze' })).toHaveAttribute('data-wink');
+    expect(screen.getByRole('img', { name: 'Drugie' })).toHaveAttribute('data-wink');
   });
 
   test('odmontowanie czyści zaplanowany timer', () => {
