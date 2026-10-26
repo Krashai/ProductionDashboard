@@ -14,13 +14,14 @@ import { deriveDeviceGroupStatuses } from '@/lib/device-status';
 // strażnika, mapowanie, pasek alarmów i kafel urządzenia.
 const CONTRACT = path.resolve(__dirname, '../../../../contracts/state_update.sample.json');
 const payload: unknown = JSON.parse(readFileSync(CONTRACT, 'utf-8'));
+const RECEIVED_AT = 1_700_000_000_000;
 
 describe('kontrakt backend → wallboard (contracts/state_update.sample.json)', () => {
   test('payload backendu przechodzi strażnika', () => {
     expect(isStateUpdate(payload)).toBe(true);
   });
 
-  const snapshots = isStateUpdate(payload) ? mapAreasPayload(payload, []) : [];
+  const snapshots = isStateUpdate(payload) ? mapAreasPayload(payload, [], { receivedAt: RECEIVED_AT }) : [];
   const chlodnia1 = snapshots.find((s) => s.id === 'chlodnia-1')!;
 
   test('pasek alarmów pokazuje opisy: próg, awarię wzbudzaną FALSE, domyślną awarię i bity słowa awarii', () => {

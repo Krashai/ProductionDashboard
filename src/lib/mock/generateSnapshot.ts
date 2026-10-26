@@ -48,6 +48,8 @@ export function generateSnapshot(
     metrics,
     lastSeenAt: now().toISOString(),
     isOnline: true,
+    // Mock jest zawsze "żywy": każda wygenerowana ramka jest świeża teraz.
+    lastFreshAt: now().getTime(),
   };
 }
 

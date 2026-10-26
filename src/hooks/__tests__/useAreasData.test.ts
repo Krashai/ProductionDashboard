@@ -13,6 +13,7 @@ function makeSnapshot(id: string): AreaSnapshot {
     metrics: [],
     lastSeenAt: null,
     isOnline: true,
+    lastFreshAt: null,
   };
 }
 

@@ -12,6 +12,7 @@ function snapshotFor(areaId: string): AreaSnapshot {
     type: definition.type,
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: definition.metrics.map((def) => ({
       id: def.id,
       label: def.label,

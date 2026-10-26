@@ -46,6 +46,7 @@ function area(overrides: Partial<AreaSnapshot>): AreaSnapshot {
     type: 'cooling',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: [],
     ...overrides,
   };

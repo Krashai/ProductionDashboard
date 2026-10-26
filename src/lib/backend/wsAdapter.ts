@@ -65,6 +65,7 @@ function offlineSnapshots(): AreaSnapshot[] {
     })),
     lastSeenAt: null,
     isOnline: false,
+    lastFreshAt: null,
   }));
 }
 
@@ -171,6 +172,8 @@ export function createWebSocketAdapter(
           }
 
           lastSnapshots = mapAreasPayload(parsed, lastSnapshots, {
+            // Zegar klienta w chwili odbioru — patrz `AreaSnapshot.lastFreshAt`.
+            receivedAt: Date.now(),
             historyLength,
             onInvalidMetric: ({ areaId, metricId, reason }) => {
               // Rate-limited per metric, not globally: two different broken

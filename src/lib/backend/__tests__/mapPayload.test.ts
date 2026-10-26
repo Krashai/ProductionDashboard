@@ -1,9 +1,24 @@
 import { describe, expect, test } from 'vitest';
 import { mapAreasPayload, markAllOffline } from '@/lib/backend/mapPayload';
-import type { InvalidMetricReport } from '@/lib/backend/mapPayload';
+import type { InvalidMetricReport, MapAreasPayloadOptions } from '@/lib/backend/mapPayload';
 import type { BackendArea, BackendMetric, BackendStateUpdate } from '@/lib/backend/payload';
 import { AREAS } from '@/lib/areas';
 import type { AreaSnapshot } from '@/lib/types';
+
+// Mapper jest czysty i sam nie czyta zegara — moment odbioru ramki dostaje od
+// wywołującego. Stała wartość robi z testów porównania deterministyczne.
+const RECEIVED_AT = 1_700_000_000_000;
+// Starszy znacznik z poprzedniej ramki — musi być różny od RECEIVED_AT, żeby
+// test odróżniał "zachowano poprzedni" od "nadpisano nowym".
+const PREVIOUS_FRESH_AT = 1_699_999_000_000;
+
+function mapAt(
+  payload: BackendStateUpdate,
+  previous: AreaSnapshot[],
+  opts: Partial<MapAreasPayloadOptions> = {}
+): AreaSnapshot[] {
+  return mapAreasPayload(payload, previous, { receivedAt: RECEIVED_AT, ...opts });
+}
 
 function makeMetric(overrides: Partial<BackendMetric> = {}): BackendMetric {
   return {
@@ -55,7 +70,7 @@ describe('mapAreasPayload', () => {
   test('mapuje wszystkie 5 obszarów z AREAS, w tej samej kolejności i z poprawnym `type`', () => {
     const payload = fullPayload();
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
 
     expect(result).toHaveLength(AREAS.length);
     result.forEach((snapshot, index) => {
@@ -82,6 +97,7 @@ describe('mapAreasPayload', () => {
         })),
         lastSeenAt: '2025-01-01T00:00:00.000Z',
         isOnline: true,
+        lastFreshAt: PREVIOUS_FRESH_AT,
       },
     ];
 
@@ -94,7 +110,7 @@ describe('mapAreasPayload', () => {
       },
     });
 
-    const result = mapAreasPayload(payload, previous);
+    const result = mapAt(payload, previous);
     const metric = result[0].metrics.find((m) => m.id === metricId)!;
 
     expect(metric.value).toBe(42);
@@ -115,7 +131,7 @@ describe('mapAreasPayload', () => {
 
     let previous: AreaSnapshot[] = [];
     for (let i = 0; i < 5; i += 1) {
-      previous = mapAreasPayload(payload, previous, { historyLength: 3 });
+      previous = mapAt(payload, previous, { historyLength: 3 });
     }
 
     const metric = previous[0].metrics.find((m) => m.id === metricId)!;
@@ -128,7 +144,7 @@ describe('mapAreasPayload', () => {
       makeBackendArea({ area_id: 'nieznany-obszar', area_name: 'Nieznany', metrics: {} })
     );
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
 
     expect(result.map((s) => s.id)).toEqual(AREAS.map((a) => a.id));
   });
@@ -143,7 +159,7 @@ describe('mapAreasPayload', () => {
     });
     const payload = makePayload(areas);
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
     const missing = result.find((s) => s.id === AREAS[0].id)!;
 
     expect(missing.isOnline).toBe(false);
@@ -167,6 +183,7 @@ describe('mapAreasPayload', () => {
       })),
       lastSeenAt: '2025-01-01T00:00:00.000Z',
       isOnline: true,
+      lastFreshAt: PREVIOUS_FRESH_AT,
     };
 
     const areas = AREAS.filter((a) => a.id !== AREAS[0].id).map((areaDef) => {
@@ -178,7 +195,7 @@ describe('mapAreasPayload', () => {
     });
     const payload = makePayload(areas);
 
-    const result = mapAreasPayload(payload, [previousSnapshot]);
+    const result = mapAt(payload, [previousSnapshot]);
     const carried = result.find((s) => s.id === AREAS[0].id)!;
 
     expect(carried.isOnline).toBe(false);
@@ -198,7 +215,7 @@ describe('mapAreasPayload', () => {
       },
     });
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
     const metric = result[0].metrics.find((m) => m.id === metricId)!;
 
     expect(metric.label).toBe('Etykieta z PLC');
@@ -217,7 +234,7 @@ describe('mapAreasPayload', () => {
       },
     });
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
     const metric = result[0].metrics.find((m) => m.id === metricId)!;
 
     expect(metric.alarm).toBe(true);
@@ -229,7 +246,7 @@ describe('mapAreasPayload', () => {
     delete metrics[metricId];
     const payload = fullPayload({ [AREAS[0].id]: { metrics } });
 
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
     const metric = result[0].metrics.find((m) => m.id === metricId)!;
 
     expect(metric.label).toBe(AREAS[0].metrics[0].label);
@@ -242,10 +259,90 @@ describe('mapAreasPayload', () => {
 
   test('isOnline i lastSeenAt są ustawiane z payloadu dla obszaru obecnego w danych', () => {
     const payload = fullPayload({ [AREAS[1].id]: { online: false } }, );
-    const result = mapAreasPayload(payload, []);
+    const result = mapAt(payload, []);
 
     expect(result.find((s) => s.id === AREAS[1].id)!.isOnline).toBe(false);
     expect(result[0].lastSeenAt).toBe(payload.timestamp);
+  });
+});
+
+describe('mapAreasPayload — lastFreshAt (czas ostatniej świeżej ramki, zegar klienta)', () => {
+  const OFFLINE_AREA_ID = AREAS[1].id;
+
+  function onlineSnapshot(areaId: string, lastFreshAt: number | null): AreaSnapshot {
+    const def = AREAS.find((a) => a.id === areaId)!;
+    return {
+      id: def.id,
+      name: def.name,
+      type: def.type,
+      metrics: def.metrics.map((m) => ({
+        id: m.id,
+        label: m.label,
+        unit: m.unit,
+        decimals: m.decimals,
+        value: 5,
+        history: [5],
+        alarm: false,
+        online: true,
+      })),
+      lastSeenAt: '2025-01-01T00:00:00.000Z',
+      isOnline: true,
+      lastFreshAt,
+    };
+  }
+
+  test('obszar online dostaje lastFreshAt = receivedAt przekazany przez wywołującego', () => {
+    const result = mapAt(fullPayload(), []);
+
+    expect(result.every((s) => s.lastFreshAt === RECEIVED_AT)).toBe(true);
+  });
+
+  test('obszar offline zachowuje poprzedni lastFreshAt (nie dostaje nowego znacznika)', () => {
+    const previous = [onlineSnapshot(OFFLINE_AREA_ID, PREVIOUS_FRESH_AT)];
+
+    const result = mapAt(fullPayload({ [OFFLINE_AREA_ID]: { online: false } }), previous);
+
+    expect(result.find((s) => s.id === OFFLINE_AREA_ID)!.lastFreshAt).toBe(PREVIOUS_FRESH_AT);
+  });
+
+  test('obszar, który nigdy nie był online, zostaje z lastFreshAt = null', () => {
+    const result = mapAt(fullPayload({ [OFFLINE_AREA_ID]: { online: false } }), []);
+
+    expect(result.find((s) => s.id === OFFLINE_AREA_ID)!.lastFreshAt).toBeNull();
+  });
+
+  test('obszar nieobecny w payloadzie (carry-forward) zachowuje poprzedni lastFreshAt', () => {
+    const payload = fullPayload();
+    payload.areas = payload.areas.filter((a) => a.area_id !== OFFLINE_AREA_ID);
+    const previous = [onlineSnapshot(OFFLINE_AREA_ID, PREVIOUS_FRESH_AT)];
+
+    const carried = mapAt(payload, previous).find((s) => s.id === OFFLINE_AREA_ID)!;
+
+    expect(carried.isOnline).toBe(false);
+    expect(carried.lastFreshAt).toBe(PREVIOUS_FRESH_AT);
+  });
+
+  test('obszar nieobecny w payloadzie i bez poprzednika ma lastFreshAt = null', () => {
+    const payload = fullPayload();
+    payload.areas = payload.areas.filter((a) => a.area_id !== OFFLINE_AREA_ID);
+
+    const missing = mapAt(payload, []).find((s) => s.id === OFFLINE_AREA_ID)!;
+
+    expect(missing.lastFreshAt).toBeNull();
+  });
+
+  test('carry-forward oznacza KAŻDĄ metrykę jako offline (Z2) i nie mutuje poprzednika', () => {
+    const payload = fullPayload();
+    payload.areas = payload.areas.filter((a) => a.area_id !== OFFLINE_AREA_ID);
+    const previous = [onlineSnapshot(OFFLINE_AREA_ID, PREVIOUS_FRESH_AT)];
+    const before = JSON.parse(JSON.stringify(previous));
+
+    const carried = mapAt(payload, previous).find((s) => s.id === OFFLINE_AREA_ID)!;
+
+    expect(carried.metrics.every((m) => m.online === false)).toBe(true);
+    // Wartości zostają — to one są trzymane na ekranie przez okno wstrzymania.
+    expect(carried.metrics.every((m) => m.value === 5)).toBe(true);
+    expect(previous).toEqual(before);
   });
 });
 
@@ -269,6 +366,7 @@ describe('markAllOffline', () => {
         ],
         lastSeenAt: '2025-01-01T00:00:00.000Z',
         isOnline: true,
+        lastFreshAt: PREVIOUS_FRESH_AT,
       },
     ];
     const snapshot = JSON.parse(JSON.stringify(original));
@@ -280,6 +378,41 @@ describe('markAllOffline', () => {
     expect(original).toEqual(snapshot);
     expect(result[0].isOnline).toBe(false);
     expect(result.every((s) => s.isOnline === false)).toBe(true);
+  });
+
+  test('oznacza każdą metrykę jako offline (Z2) i zachowuje wartości oraz lastFreshAt', () => {
+    const original: AreaSnapshot[] = [
+      {
+        id: AREAS[0].id,
+        name: AREAS[0].name,
+        type: AREAS[0].type,
+        metrics: [
+          {
+            id: AREAS[0].metrics[0].id,
+            label: AREAS[0].metrics[0].label,
+            unit: AREAS[0].metrics[0].unit,
+            decimals: AREAS[0].metrics[0].decimals,
+            value: 10,
+            history: [9, 10],
+            alarm: true,
+            online: true,
+          },
+        ],
+        lastSeenAt: '2025-01-01T00:00:00.000Z',
+        isOnline: true,
+        lastFreshAt: PREVIOUS_FRESH_AT,
+      },
+    ];
+
+    const [result] = markAllOffline(original);
+
+    expect(result.metrics[0].online).toBe(false);
+    expect(result.metrics[0].value).toBe(10);
+    expect(result.metrics[0].history).toEqual([9, 10]);
+    expect(result.metrics[0].alarm).toBe(true);
+    expect(result.lastFreshAt).toBe(PREVIOUS_FRESH_AT);
+    // Oryginał nietknięty — wcześniejsza flaga online metryki zostaje.
+    expect(original[0].metrics[0].online).toBe(true);
   });
 });
 
@@ -303,7 +436,7 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
   }
 
   test('wadliwa metryka nie wywraca pozostałych metryk ani innych obszarów', () => {
-    const result = mapAreasPayload(payloadWithBrokenMetric(true), []);
+    const result = mapAt(payloadWithBrokenMetric(true), []);
 
     expect(result).toHaveLength(AREAS.length);
     const others = result.flatMap((s) => s.metrics).filter((m) => m.id !== BROKEN_METRIC_ID);
@@ -322,8 +455,8 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
       ...makeMetric(),
       value: previousValue,
     };
-    const healthy = mapAreasPayload(seed, []);
-    const degraded = mapAreasPayload(payloadWithBrokenMetric(true), healthy);
+    const healthy = mapAt(seed, []);
+    const degraded = mapAt(payloadWithBrokenMetric(true), healthy);
 
     const metric = degraded[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!;
     expect(metric.value).toBe(previousValue);
@@ -340,7 +473,7 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
     const payload = fullPayload();
     delete payload.areas.find((a) => a.area_id === 'chlodnia-1')!.metrics[BROKEN_METRIC_ID];
 
-    mapAreasPayload(payload, [], { onInvalidMetric: (r) => reports.push(r) });
+    mapAt(payload, [], { onInvalidMetric: (r) => reports.push(r) });
 
     expect(reports).toEqual([]);
   });
@@ -348,7 +481,7 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
   test('zgłasza każdą wadliwą metrykę przez onInvalidMetric, z powodem', () => {
     const reports: InvalidMetricReport[] = [];
 
-    mapAreasPayload(payloadWithBrokenMetric(true), [], {
+    mapAt(payloadWithBrokenMetric(true), [], {
       onInvalidMetric: (report) => reports.push(report),
     });
 
@@ -367,10 +500,10 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
     const chlodnia1 = alarming.areas.find((a) => a.area_id === 'chlodnia-1')!;
     chlodnia1.metrics[BROKEN_METRIC_ID] = { ...makeMetric(), alarm: true };
 
-    const withAlarm = mapAreasPayload(alarming, []);
+    const withAlarm = mapAt(alarming, []);
     expect(withAlarm[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!.alarm).toBe(true);
 
-    const degraded = mapAreasPayload(payloadWithBrokenMetric(true), withAlarm);
+    const degraded = mapAt(payloadWithBrokenMetric(true), withAlarm);
     expect(degraded[0].metrics.find((m) => m.id === BROKEN_METRIC_ID)!.alarm).toBe(true);
   });
 
@@ -383,20 +516,20 @@ describe('mapAreasPayload — degradacja wadliwej metryki', () => {
     // `value` jest poprawne; zepsute jest `label`.
     chlodnia1.metrics[BROKEN_METRIC_ID] = { ...makeMetric(), label: 1 };
 
-    mapAreasPayload(payload, [], { onInvalidMetric: (r) => reports.push(r) });
+    mapAt(payload, [], { onInvalidMetric: (r) => reports.push(r) });
 
     expect(reports.map((r) => r.reason)).toEqual(['label: number']);
   });
 
   test('nie zgłasza niczego, gdy wszystkie metryki są poprawne', () => {
     const reports: unknown[] = [];
-    mapAreasPayload(fullPayload(), [], { onInvalidMetric: (r) => reports.push(r) });
+    mapAt(fullPayload(), [], { onInvalidMetric: (r) => reports.push(r) });
     expect(reports).toEqual([]);
   });
 
   test('metryka STRING degraduje tak samo jak boolean — ta sama klasa błędu', () => {
     const reports: InvalidMetricReport[] = [];
-    mapAreasPayload(payloadWithBrokenMetric('chlodnia-1'), [], {
+    mapAt(payloadWithBrokenMetric('chlodnia-1'), [], {
       onInvalidMetric: (report) => reports.push(report),
     });
     expect(reports.map((r) => r.reason)).toEqual(['value: string']);

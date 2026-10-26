@@ -69,6 +69,7 @@ function snapshot(overrides: Partial<AreaSnapshot> = {}): AreaSnapshot {
     type: 'power',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: definition.metrics.map((def) =>
       metric({ id: def.id, label: def.label, unit: def.unit, decimals: def.decimals, value: 42 })
     ),

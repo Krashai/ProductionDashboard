@@ -114,6 +114,7 @@ function snapshot(overrides: Partial<AreaSnapshot> = {}): AreaSnapshot {
     type: 'compressor',
     isOnline: true,
     lastSeenAt: new Date().toISOString(),
+    lastFreshAt: null,
     metrics: [...baseAnalogMetrics(), ...runningDeviceMetrics()],
     ...overrides,
   };

@@ -12,6 +12,8 @@ import type { AreaSnapshot, Metric } from '@/lib/types';
 // wallboard żadnej z tych rzeczy nie wyświetlał — alarmy bitowe słów awarii
 // były dla operatora niewidoczne, a przy metrykach nie było widać "dlaczego".
 
+const RECEIVED_AT = 1_700_000_000_000;
+
 function metric(overrides: Partial<Metric>): Metric {
   return { id: 'm', label: 'L', value: 0, unit: '', decimals: 0, history: [], alarm: false, ...overrides };
 }
@@ -19,7 +21,7 @@ function metric(overrides: Partial<Metric>): Metric {
 function area(overrides: Partial<AreaSnapshot>): AreaSnapshot {
   return {
     id: 'chlodnia-1', name: 'Chłodnia 1', type: 'cooling', metrics: [], lastSeenAt: null,
-    isOnline: true, ...overrides,
+    isOnline: true, lastFreshAt: null, ...overrides,
   };
 }
 
@@ -77,7 +79,7 @@ describe('mapAreasPayload — opisy i alarmy diagnostyczne', () => {
   test('przenosi alarm_description do metryki', () => {
     const [c1] = mapAreasPayload(payload([backendArea({ metrics: {
       'chlodnia-1-temp': { label: 'T', unit: '°C', decimals: 1, value: 9.5, alarm: true, alarm_description: 'Powyżej maksimum (9.0)', online: true },
-    } })]), []);
+    } })]), [], { receivedAt: RECEIVED_AT });
 
     expect(c1.metrics.find((m) => m.id === 'chlodnia-1-temp')?.alarmDescription).toBe('Powyżej maksimum (9.0)');
   });
@@ -87,7 +89,7 @@ describe('mapAreasPayload — opisy i alarmy diagnostyczne', () => {
       { tag_id: 1, metric_id: 'chlodnia-1-temp', tag_name: 't', label: 'T', description: 'x' },
       { tag_id: 2, metric_id: 'chlodnia-1-diag-aw1', tag_name: 'w', label: 'Słowo awarii 1', description: 'Przegrzanie' },
       { tag_id: 3, metric_id: 42, label: null },
-    ] })]), []);
+    ] })]), [], { receivedAt: RECEIVED_AT });
 
     expect(c1.extraAlarms).toEqual([
       { metricId: 'chlodnia-1-diag-aw1', label: 'Słowo awarii 1', description: 'Przegrzanie' },
