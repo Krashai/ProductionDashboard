@@ -7,7 +7,9 @@ import { cn } from '@/lib/utils';
 import { useAreasData } from '@/hooks/useAreasData';
 import { useCarousel } from '@/hooks/useCarousel';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
+import { useNow } from '@/hooks/useNow';
 import { AREAS } from '@/lib/areas';
+import { areaDataState } from '@/lib/staleness';
 import { AreaView } from '@/components/AreaView';
 import { AlarmBar, collectAlarms } from '@/components/AlarmBar';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -72,6 +74,12 @@ export function Wallboard() {
     () => areas.find((area) => area.id === activeAreaId),
     [areas, activeAreaId]
   );
+
+  // Zegar tyka tylko wtedy, gdy coś się starzeje (zerwane WS albo offline'owy
+  // obszar) — w stanie "live" kiosk nie renderuje się co sekundę.
+  const isTicking = status !== 'live' || areas.some((area) => !area.isOnline);
+  const now = useNow(isTicking);
+  const activeDataState = activeSnapshot ? areaDataState(activeSnapshot, now) : undefined;
 
   // Ten sam `collectAlarms`, co zasila AlarmBar u dołu ekranu — świadomie NIE
   // licząc alarmów lokalnie drugi raz, żeby kropka w navbarze nigdy nie
@@ -212,13 +220,18 @@ export function Wallboard() {
              * kioskowego — offline potrzebuje jawnego wskaźnika przy samej
              * nazwie obszaru (audyt UI/UX). Tekst sr-only, bo StatusBadge to
              * czysto kolorowa kropka bez własnej treści dla czytników ekranu. */}
-            <StatusBadge status={activeSnapshot?.isOnline} />
+            {/* Czerwona kropka dopiero po oknie wstrzymania — w oknie kafle
+             * trzymają ostatnie wartości, a o utracie danych informuje pasek
+             * u dołu. Czytnik ekranu dostaje jednak prawdę o `held`. */}
+            <StatusBadge status={activeDataState === undefined ? undefined : activeDataState !== 'unavailable'} />
             <span className="sr-only">
-              {activeSnapshot?.isOnline === true
+              {activeDataState === 'live'
                 ? 'Obszar online'
-                : activeSnapshot?.isOnline === false
-                  ? 'Obszar offline'
-                  : 'Stan obszaru nieznany'}
+                : activeDataState === 'held'
+                  ? 'Obszar bez świeżych danych'
+                  : activeDataState === 'unavailable'
+                    ? 'Obszar offline'
+                    : 'Stan obszaru nieznany'}
             </span>
           </div>
 
@@ -288,7 +301,7 @@ export function Wallboard() {
 
         <div data-testid="wallboard-content" className="flex-1 min-h-0">
           {activeSnapshot && activeDefinition ? (
-            <AreaView area={activeSnapshot} definition={activeDefinition} />
+            <AreaView area={activeSnapshot} definition={activeDefinition} now={now} />
           ) : (
             <div className="h-full flex items-center justify-center text-slate-600 text-[11px] font-black uppercase tracking-widest">
               Ładowanie danych obszaru…

@@ -1,4 +1,4 @@
-import type { AreaSnapshot } from '@/lib/types';
+import type { AreaSnapshot, Metric } from '@/lib/types';
 
 /**
  * Jak długo po utracie danych (cały WebSocket albo PLC jednego obszaru)
@@ -44,6 +44,18 @@ export function areaDataState(
   // Nigdy nie było świeżej ramki — nie mamy czego "trzymać".
   if (area.lastFreshAt === null) return 'unavailable';
   return staleAgeMs(area.lastFreshAt, now) < STALE_HOLD_MS ? 'held' : 'unavailable';
+}
+
+/**
+ * Szarość kafla metryki, której PLC jest osobnym źródłem (Sprężarkownia: dwa
+ * sterowniki w jednym obszarze). Okno wstrzymania obowiązuje i tu — w `held`
+ * kafel pokazuje ostatnią wartość mimo `online: false`. Poza oknem decyduje
+ * flaga samej metryki, więc żywy PLC nie gaśnie razem z martwym. Obszar `live`
+ * z metryką `online: false` (tag bez danych) szarzeje jak dotąd — "—" jest tu
+ * uczciwsze niż zero.
+ */
+export function isMetricUnavailable(metric: Pick<Metric, 'online'>, areaState: AreaDataState): boolean {
+  return metric.online === false && areaState !== 'held';
 }
 
 function pad2(value: number): string {

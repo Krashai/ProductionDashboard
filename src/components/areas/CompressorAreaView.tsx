@@ -1,6 +1,7 @@
 import { DeviceStatusTile } from '@/components/DeviceStatusTile';
 import { OverviewMetricTile } from '@/components/OverviewMetricTile';
 import { deriveDeviceGroupStatuses } from '@/lib/device-status';
+import { areaDataState, isMetricUnavailable, type AreaDataState } from '@/lib/staleness';
 import { cn, stripSectionPrefix } from '@/lib/utils';
 import type { AreaDefinition } from '@/lib/areas';
 import type { AreaSnapshot, Metric } from '@/lib/types';
@@ -8,6 +9,8 @@ import type { AreaSnapshot, Metric } from '@/lib/types';
 interface CompressorAreaViewProps {
   area: AreaSnapshot;
   definition: AreaDefinition;
+  /** Czas klienta do oceny wieku danych; patrz `AreaView`. */
+  now?: number;
 }
 
 // Id grup muszą być zgodne z `compressorArea()` w `src/lib/areas.ts`.
@@ -72,12 +75,19 @@ const SECTION_GRID_CLASSES: Record<number, string> = {
  * WSZYSTKIE jej metryki mówią to samo. `undefined` (tryb mock/demo, gdzie
  * to pole nigdy nie jest ustawiane) liczy się jako "online" — nie gasimy
  * ekranu tam, gdzie tego sygnału w ogóle nie ma.
+ *
+ * Okno wstrzymania (`areaState === 'held'`) ma pierwszeństwo: po utracie
+ * danych sekcja trzyma ostatnie wartości, a szarzeje dopiero po oknie —
+ * patrz `isMetricUnavailable`.
  */
-function isSectionOffline(metricIds: string[], metrics: Metric[]): boolean {
-  return metricIds.every((id) => metrics.find((m) => m.id === id)?.online === false);
+function isSectionOffline(metricIds: string[], metrics: Metric[], areaState: AreaDataState): boolean {
+  return metricIds.every((id) => {
+    const metric = metrics.find((m) => m.id === id);
+    return metric !== undefined && isMetricUnavailable(metric, areaState);
+  });
 }
 
-export function CompressorAreaView({ area, definition }: CompressorAreaViewProps) {
+export function CompressorAreaView({ area, definition, now = Date.now() }: CompressorAreaViewProps) {
   const aluminiumMetricIds = [`${definition.id}-magazyn-aluminium-cisnienie-zbiornik`];
   const bebnyMetricIds = [
     `${definition.id}-magazyn-bebnow-cisnienie-zbiornik`,
@@ -85,8 +95,9 @@ export function CompressorAreaView({ area, definition }: CompressorAreaViewProps
     `${definition.id}-magazyn-bebnow-przeplyw-powietrza`,
   ];
 
-  const aluminiumOffline = isSectionOffline(aluminiumMetricIds, area.metrics);
-  const bebnyOffline = isSectionOffline(bebnyMetricIds, area.metrics);
+  const areaState = areaDataState(area, now);
+  const aluminiumOffline = isSectionOffline(aluminiumMetricIds, area.metrics, areaState);
+  const bebnyOffline = isSectionOffline(bebnyMetricIds, area.metrics, areaState);
 
   // Grupy urządzeń liczone OSOBNO na sekcję (nie jednym wspólnym wywołaniem
   // dla `definition.deviceGroups` w całości) — inaczej obie sekcje znów

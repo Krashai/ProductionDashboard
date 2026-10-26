@@ -7,6 +7,10 @@ import type { AreaSnapshot } from '@/lib/types';
 interface AreaViewProps {
   area: AreaSnapshot;
   definition: AreaDefinition;
+  /** Czas klienta (epoch ms) do oceny wieku danych — z `useNow`. Opcjonalny
+   * tylko po to, by widoki dało się renderować bez tykania zegara; bez niego
+   * używają `Date.now()` z chwili renderu. */
+  now?: number;
 }
 
 /**
@@ -14,13 +18,13 @@ interface AreaViewProps {
  * mapowanie typ→widok, żeby karuzela (Faza 4) mogła renderować dowolny
  * obszar bez własnej logiki warunkowej.
  */
-export function AreaView({ area, definition }: AreaViewProps) {
+export function AreaView({ area, definition, now }: AreaViewProps) {
   switch (area.type) {
     case 'cooling':
-      return <CoolingAreaView area={area} definition={definition} />;
+      return <CoolingAreaView area={area} definition={definition} now={now} />;
     case 'compressor':
-      return <CompressorAreaView area={area} definition={definition} />;
+      return <CompressorAreaView area={area} definition={definition} now={now} />;
     case 'power':
-      return <PowerAreaView area={area} definition={definition} />;
+      return <PowerAreaView area={area} definition={definition} now={now} />;
   }
 }

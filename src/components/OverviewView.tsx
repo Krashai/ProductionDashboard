@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Pin, Snowflake, Wind, Zap, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAreasData } from '@/hooks/useAreasData';
+import { useNow } from '@/hooks/useNow';
 import { AlarmBar } from '@/components/AlarmBar';
 import { Logo } from '@/components/brand/Logo';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -13,6 +14,7 @@ import { COLOR_MAP, type MetricCardColor } from '@/components/MetricCard';
 import { AREAS, type AreaDefinition } from '@/lib/areas';
 import { fitValueChars } from '@/lib/overview-fit';
 import { computeTotalActivePowerKw } from '@/lib/overview-power-summary';
+import { areaDataState, isMetricUnavailable } from '@/lib/staleness';
 import type { AreaSnapshot } from '@/lib/types';
 
 const COOLING_AREAS = AREAS.filter((area) => area.type === 'cooling');
@@ -64,6 +66,10 @@ const TOTAL_POWER_DECIMALS = 0;
 export function OverviewView() {
   const { areas, status, lastEventAt } = useAreasData();
   const byId = new Map(areas.map((area) => [area.id, area]));
+  // Zegar tyka tylko wtedy, gdy coś się starzeje (zerwane WS albo offline'owy
+  // obszar) — w stanie "live" kiosk nie renderuje się co sekundę.
+  const isTicking = status !== 'live' || areas.some((area) => !area.isOnline);
+  const now = useNow(isTicking);
 
   return (
     <main className="h-screen overflow-hidden flex flex-col bg-white">
@@ -153,11 +159,11 @@ export function OverviewView() {
           className="flex-1 min-h-0 grid content-between narrow:[container-type:size] narrow:grid-rows-[repeat(3,minmax(0,1fr))] narrow:gap-y-[var(--overview-narrow-row-gap)] gap-x-6 xl:gap-x-8 2xl:gap-x-10 gap-y-3 xl:gap-y-4 2xl:gap-y-6 pt-4 xl:pt-5 2xl:pt-6 overflow-hidden"
           style={{ gridTemplateColumns: BODY_GRID_TEMPLATE_COLUMNS }}
         >
-          <CoolingRow definition={COOLING_AREA_1} snapshot={byId.get(COOLING_AREA_1.id)} />
-          <CompressorSection snapshot={byId.get(COMPRESSOR_AREA.id)} />
-          <CoolingRow definition={COOLING_AREA_2} snapshot={byId.get(COOLING_AREA_2.id)} />
-          <PowerSection definition={POWER_AREA} snapshot={byId.get(POWER_AREA.id)} />
-          <CoolingRow definition={COOLING_AREA_3} snapshot={byId.get(COOLING_AREA_3.id)} />
+          <CoolingRow definition={COOLING_AREA_1} snapshot={byId.get(COOLING_AREA_1.id)} now={now} />
+          <CompressorSection snapshot={byId.get(COMPRESSOR_AREA.id)} now={now} />
+          <CoolingRow definition={COOLING_AREA_2} snapshot={byId.get(COOLING_AREA_2.id)} now={now} />
+          <PowerSection definition={POWER_AREA} snapshot={byId.get(POWER_AREA.id)} now={now} />
+          <CoolingRow definition={COOLING_AREA_3} snapshot={byId.get(COOLING_AREA_3.id)} now={now} />
         </div>
       </div>
 
@@ -200,14 +206,23 @@ function SectionHeading({
   );
 }
 
+/** Szarość i "—" dopiero po oknie wstrzymania (`unavailable`), nie od razu po
+ * `isOnline: false` — w oknie kafle trzymają ostatnie znane wartości. Brak
+ * snapshotu (przed pierwszą ramką) to nie "offline": nie ma jeszcze kafli. */
+function isAreaUnavailable(snapshot: AreaSnapshot | undefined, now: number): boolean {
+  return snapshot ? areaDataState(snapshot, now) === 'unavailable' : false;
+}
+
 function CoolingRow({
   definition,
   snapshot,
+  now,
 }: {
   definition: AreaDefinition;
   snapshot: AreaSnapshot | undefined;
+  now: number;
 }) {
-  const offline = snapshot ? !snapshot.isOnline : false;
+  const offline = isAreaUnavailable(snapshot, now);
   const metrics = snapshot?.metrics ?? [];
   const tempMetric = metrics.find((m) => m.unit === '°C');
   const pressureMetric = metrics.find((m) => m.unit === 'bar');
@@ -277,13 +292,16 @@ function CoolingRow({
   );
 }
 
-function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined }) {
+function CompressorSection({ snapshot, now }: { snapshot: AreaSnapshot | undefined; now: number }) {
+  const areaState = snapshot ? areaDataState(snapshot, now) : 'live';
   // NIE `!snapshot.isOnline` (AND obu fizycznych PLC Sprężarkowni — MA_M3
   // dla Magazynu Aluminium, MB_M2 dla Magazynu Bębnów, patrz
   // `build_area_payload` w backendzie): to gasiło OBIE karty razem, gdy
   // padał TYLKO JEDEN sterownik (zgłoszenie użytkownika, wrzesień 2026 —
   // ten sam defekt co w CompressorAreaView.tsx, tu na ekranie głównym).
-  // Każda metryka niesie teraz WŁASNY `online` z jej własnego PLC.
+  // Każda metryka niesie teraz WŁASNY `online` z jej własnego PLC. W oknie
+  // wstrzymania (`held`) kafel i tak trzyma ostatnią wartość — patrz
+  // `isMetricUnavailable`.
   //
   // Sierpień 2026: Sprężarkownia dostała kafle urządzeń (PRACA/AWARIA per
   // sprężarka, unit="") obok swoich metryk analogowych (ciśnienie/przepływ),
@@ -332,7 +350,7 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
             unit={metric.unit}
             decimals={metric.decimals}
             alarm={metric.alarm}
-            offline={metric.online === false}
+            offline={isMetricUnavailable(metric, areaState)}
             fitChars={fitChars}
           />
         ))}
@@ -344,11 +362,13 @@ function CompressorSection({ snapshot }: { snapshot: AreaSnapshot | undefined })
 function PowerSection({
   definition,
   snapshot,
+  now,
 }: {
   definition: AreaDefinition;
   snapshot: AreaSnapshot | undefined;
+  now: number;
 }) {
-  const offline = snapshot ? !snapshot.isOnline : false;
+  const offline = isAreaUnavailable(snapshot, now);
   const metrics = snapshot?.metrics ?? [];
   const activePowerMetrics = metrics.filter((m) => m.unit === 'kW');
   const totalKw = computeTotalActivePowerKw(metrics);

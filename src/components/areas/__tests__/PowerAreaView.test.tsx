@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { PowerAreaView } from '@/components/areas/PowerAreaView';
 import type { AreaDefinition } from '@/lib/areas';
+import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot, Metric } from '@/lib/types';
 
 // Patrz komentarz w OverviewMetricTile.test.tsx: `Counter` animuje przez rAF,
@@ -464,7 +465,7 @@ describe('PowerAreaView', () => {
     ).toHaveLength(1);
   });
 
-  test('isOnline===false propaguje offline do wszystkich 36 kafli', () => {
+  test('offline bez świeżych danych (lastFreshAt=null) propaguje offline do wszystkich 36 kafli', () => {
     const { container } = render(
       <PowerAreaView area={snapshot({ isOnline: false })} definition={definition} />
     );
@@ -487,5 +488,35 @@ describe('PowerAreaView', () => {
     expect(
       container.querySelector('[data-testid="metric-card-trafostacja-3-thdu"]')
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('PowerAreaView — okno wstrzymania ostatnich wartości', () => {
+  const NOW = 1_700_000_000_000;
+  const TILES = '[data-testid^="metric-card-trafostacja-"]';
+
+  test('offline od 30 s (w oknie) trzyma wartości we wszystkich 36 kaflach, bez szarości i bez "—"', () => {
+    const held = snapshot({ isOnline: false, lastFreshAt: NOW - 30_000 });
+
+    const { container } = render(<PowerAreaView area={held} definition={definition} now={NOW} />);
+
+    const tiles = container.querySelectorAll(TILES);
+    expect(tiles).toHaveLength(36);
+    for (const el of tiles) {
+      expect((el as HTMLElement).className).not.toMatch(/grayscale-\[0\.5\]/);
+    }
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    expect(screen.getAllByText('42.0').length).toBeGreaterThan(0);
+  });
+
+  test('offline po oknie wstrzymania szarzeje wszystkie 36 kafli i pokazuje "—"', () => {
+    const expired = snapshot({ isOnline: false, lastFreshAt: NOW - STALE_HOLD_MS });
+
+    const { container } = render(<PowerAreaView area={expired} definition={definition} now={NOW} />);
+
+    for (const el of container.querySelectorAll(TILES)) {
+      expect((el as HTMLElement).className).toMatch(/grayscale-\[0\.5\]/);
+    }
+    expect(screen.getAllByText('—')).toHaveLength(36);
   });
 });
