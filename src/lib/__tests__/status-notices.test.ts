@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { collectStatusNotices } from '@/lib/status-notices';
+import { AREA_NOTICE_GRACE_MS, collectStatusNotices } from '@/lib/status-notices';
 import { STALE_HOLD_MS } from '@/lib/staleness';
 import type { AreaSnapshot } from '@/lib/types';
 
@@ -167,9 +167,10 @@ describe('collectStatusNotices — wiersze tabeli decyzji', () => {
   });
 
   test('skok zegara wstecz nie daje ujemnego wieku', () => {
+    // Chip połączenia, bo chip obszaru przy wieku 0 s chowa okno tolerancji.
     const areas = [area('chlodnia-1', 'Chłodnia 1', { isOnline: false, lastFreshAt: NOW + 4_000 })];
 
-    expect(collectStatusNotices(areas, 'live', NOW)[0].text).toBe('Chłodnia 1 — brak odświeżania od 0 s');
+    expect(collectStatusNotices(areas, 'offline', NOW)[0].text).toBe('Wznawianie połączenia — dane sprzed 0 s');
   });
 });
 
@@ -196,5 +197,19 @@ describe('collectStatusNotices — klucz tożsamości (dla pomiaru markizy)', ()
     const keys = collectStatusNotices(areas, 'live', NOW).map((n) => n.key);
 
     expect(new Set(keys).size).toBe(2);
+  });
+});
+
+describe('collectStatusNotices — okno tolerancji pojedynczego obszaru', () => {
+  // Pojedynczy nieudany cykl PLC (częsty — raport niezawodności 25.10) nie
+  // może co chwilę błyskać chipem w pasku.
+  test('obszar offline krócej niż AREA_NOTICE_GRACE_MS => brak chipa', () => {
+    const areas = [area('chlodnia-1', 'Chłodnia 1', { isOnline: false, lastFreshAt: NOW - (AREA_NOTICE_GRACE_MS - 1) })];
+    expect(collectStatusNotices(areas, 'live', NOW)).toEqual([]);
+  });
+
+  test('obszar offline od AREA_NOTICE_GRACE_MS => chip się pojawia', () => {
+    const areas = [area('chlodnia-1', 'Chłodnia 1', { isOnline: false, lastFreshAt: NOW - AREA_NOTICE_GRACE_MS })];
+    expect(collectStatusNotices(areas, 'live', NOW)).toHaveLength(1);
   });
 });

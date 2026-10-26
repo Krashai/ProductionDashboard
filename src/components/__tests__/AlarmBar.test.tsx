@@ -536,3 +536,25 @@ describe('AlarmBar — komunikaty w tickerze', () => {
     expect(screen.getAllByTestId('status-chip-area-chlodnia-1')).toHaveLength(2);
   });
 });
+
+describe('AlarmBar — obszar z dwoma PLC, jeden offline (Sprężarkownia)', () => {
+  test('alarm metryki z żywego PLC zostaje w pasku, alarm z martwego PLC znika', () => {
+    const compressor = area({
+      id: 'sprezarkownia',
+      name: 'Sprężarkownia',
+      isOnline: false,
+      lastFreshAt: NOW - 20_000,
+      metrics: [
+        metric({ id: 'live-m', label: 'Magazyn bębnów', alarm: true, online: true }),
+        metric({ id: 'dead-m', label: 'Magazyn aluminium', alarm: true, online: false }),
+      ],
+      extraAlarms: [{ metricId: 'fault', label: 'Awaria', description: null }],
+    });
+
+    render(<AlarmBar areas={[compressor]} status="live" now={NOW} />);
+
+    expect(screen.getByTestId('alarm-chip-sprezarkownia-live-m')).toBeInTheDocument();
+    expect(screen.queryByTestId('alarm-chip-sprezarkownia-dead-m')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alarm-chip-sprezarkownia-fault')).not.toBeInTheDocument();
+  });
+});

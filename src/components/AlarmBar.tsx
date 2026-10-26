@@ -111,6 +111,22 @@ function AlarmChip({ alarm }: { alarm: AlarmState }) {
   );
 }
 
+/**
+ * Obszar offline: zostają tylko alarmy metryk, których WŁASNY PLC jest online.
+ * Sprężarkownia ma dwa sterowniki, a `isOnline` obszaru to AND obu — gdy
+ * padnie jeden, alarm z drugiego jest prawdziwy i nie wolno go schować.
+ * Słowa awarii (`extraAlarms`) nie mają flagi per metryka, więc znikają razem
+ * z obszarem.
+ */
+function withoutStaleAlarms(area: AreaSnapshot): AreaSnapshot {
+  if (area.isOnline) return area;
+  return {
+    ...area,
+    metrics: area.metrics.filter((metric) => metric.online === true),
+    extraAlarms: [],
+  };
+}
+
 /** Chipy paska: najpierw komunikaty o stanie danych, potem alarmy. Renderowane
  * dwa razy w tickerze (oryginał + kopia pętli), stąd osobny komponent. */
 function BarChips({ notices, alarms }: { notices: StatusNotice[]; alarms: AlarmState[] }) {
@@ -133,7 +149,7 @@ export function AlarmBar({ areas, status, now, className }: AlarmBarProps) {
   // obszarze chowamy tylko alarmy tego obszaru: alarmy żywych obszarów są
   // prawdziwe i ukrycie ich byłoby ukryciem realnej awarii.
   const hasConnectionNotice = notices.some((notice) => notice.scope === 'connection');
-  const alarms = hasConnectionNotice ? [] : collectAlarms(areas.filter((area) => area.isOnline));
+  const alarms = hasConnectionNotice ? [] : collectAlarms(areas.map(withoutStaleAlarms));
   const hasItems = notices.length > 0 || alarms.length > 0;
 
   // Klucz tożsamości zestawu chipów (nie wartości metryk, nie tykający wiek) —

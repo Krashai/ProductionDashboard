@@ -37,6 +37,12 @@ export interface StatusNotice {
   showsAge: boolean;
 }
 
+/** Ile obszar musi być offline, zanim pojawi się jego chip. Pojedynczy
+ * nieudany cykl PLC zdarza się często (raport niezawodności 25.10.2026) —
+ * bez tej tolerancji pasek co chwilę błyskałby chipem na sekundę, a kafle i
+ * tak trzymają wartości. Nie dotyczy utraty całego połączenia. */
+export const AREA_NOTICE_GRACE_MS = 5_000;
+
 const CONNECTING_TEXT = 'Łączenie z serwerem…';
 const CONNECTION_TEST_ID = 'status-chip-connection';
 
@@ -99,6 +105,10 @@ function connectionNotice(areas: AreaSnapshot[], now: number): StatusNotice {
 function areaNotice(area: AreaSnapshot, now: number): StatusNotice | null {
   const state = areaDataState(area, now);
   if (state === 'live') return null;
+
+  if (state === 'held' && area.lastFreshAt !== null && staleAgeMs(area.lastFreshAt, now) < AREA_NOTICE_GRACE_MS) {
+    return null;
+  }
 
   const age = ageLabel(area.lastFreshAt, now);
   if (state === 'held' && age !== null) {
