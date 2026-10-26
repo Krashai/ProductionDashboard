@@ -9,6 +9,8 @@ import type { LensColor } from '@/lib/brand/wink-timeline';
 // `~=` łapie też `rel="shortcut icon"`, ale nie `apple-touch-icon`. Linki bez
 // `href` pomijamy — nie ma czego przywracać.
 const ICON_LINK_SELECTOR = 'link[rel~="icon"][href]';
+const ORIGINAL_HREF_KEY = 'winkOriginalHref';
+const ORIGINAL_HREF_SELECTOR = 'link[data-wink-original-href]';
 
 function findIconLinks(): HTMLLinkElement[] {
   return Array.from(document.head.querySelectorAll<HTMLLinkElement>(ICON_LINK_SELECTOR));
@@ -24,19 +26,23 @@ export function useFaviconWink(enabled: boolean): void {
   useEffect(() => {
     if (!enabled || prefersReducedMotion()) return;
 
-    // Oryginalne `href` zapamiętane przy pierwszej podmianie danego linku.
-    const originalHrefs = new Map<HTMLLinkElement, string>();
-
     const showLens = (lens: LensColor) => {
       const href = faviconDataUri(lens);
       findIconLinks().forEach((link) => {
-        if (!originalHrefs.has(link)) originalHrefs.set(link, link.getAttribute('href') ?? '');
+        // Oryginał trzymany na samym linku, a nie w pamięci hooka: przy dwóch
+        // włączonych hookach drugi uznałby czerwień ustawioną przez pierwszy
+        // za "oryginał" i przywrócił ją po mrugnięciu.
+        if (link.dataset[ORIGINAL_HREF_KEY] === undefined) {
+          link.dataset[ORIGINAL_HREF_KEY] = link.getAttribute('href') ?? '';
+        }
         link.setAttribute('href', href);
       });
     };
     const restore = () => {
-      originalHrefs.forEach((href, link) => link.setAttribute('href', href));
-      originalHrefs.clear();
+      document.head.querySelectorAll<HTMLLinkElement>(ORIGINAL_HREF_SELECTOR).forEach((link) => {
+        link.setAttribute('href', link.dataset[ORIGINAL_HREF_KEY] ?? '');
+        delete link.dataset[ORIGINAL_HREF_KEY];
+      });
     };
 
     const unsubscribe = winkScheduler.subscribe((event) => {

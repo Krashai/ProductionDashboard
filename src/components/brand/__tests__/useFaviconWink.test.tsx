@@ -55,6 +55,17 @@ describe('useFaviconWink', () => {
     expect(icon.getAttribute('href')).toBe(faviconDataUri('red'));
   });
 
+  test('dwa włączone hooki naraz nie zostawiają czerwonej favicony po mrugnięciu', () => {
+    // Drugi hook nie może uznać czerwonego href (ustawionego przez pierwszy)
+    // za "oryginał" — inaczej po końcu mrugnięcia przywróciłby czerwień.
+    const icon = addLink('icon', ORIGINAL_HREF);
+    renderHook(() => useFaviconWink(true));
+    renderHook(() => useFaviconWink(true));
+
+    act(() => vi.advanceTimersByTime(WINK_MIN_DELAY_MS + WINK_DURATION_MS));
+    expect(icon.getAttribute('href')).toBe(ORIGINAL_HREF);
+  });
+
   test('po zakończeniu mrugnięcia przywraca oryginalny href', () => {
     const icon = addLink('icon', ORIGINAL_HREF);
     renderHook(() => useFaviconWink(true));
