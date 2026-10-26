@@ -3,14 +3,9 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { LINEFLOW_LOGO } from '@/components/brand/lineflow-logo.generated';
-
-// Easter egg (decyzja użytkownika, październik 2026): lampka NIE pokazuje
-// stanu systemu — świeci stałym kolorem marki, ale co jakiś czas mruga dwa
-// razy na czerwono. Losowy odstęp, żeby nie dało się go przewidzieć.
-const WINK_MIN_DELAY_MS = 60_000;
-const WINK_MAX_DELAY_MS = 180_000;
-// Musi być równe czasowi animacji `ln-wink` w globals.css.
-const WINK_DURATION_MS = 1_600;
+import { useFaviconWink } from '@/components/brand/useFaviconWink';
+import { prefersReducedMotion } from '@/lib/brand/reduced-motion';
+import { winkScheduler } from '@/lib/brand/wink-scheduler';
 
 interface LogoProps {
   /** Wysokość ustawiana klasą (np. `h-5 xl:h-6`) — szerokość wynika z viewBoxa. */
@@ -29,6 +24,8 @@ interface LogoProps {
  */
 export function Logo({ className, label = LINEFLOW_LOGO.name, wink = false }: LogoProps) {
   const isWinking = useWink(wink);
+  // Favicona mruga w tej samej chwili co lampka w logo (wspólny scheduler).
+  useFaviconWink(wink);
   const { lamp } = LINEFLOW_LOGO;
 
   return (
@@ -54,30 +51,25 @@ export function Logo({ className, label = LINEFLOW_LOGO.name, wink = false }: Lo
   );
 }
 
+/**
+ * Easter egg (decyzja użytkownika, październik 2026): lampka mruga dwa razy na
+ * czerwono w losowych odstępach. Czas mrugnięcia nadaje wspólny scheduler
+ * (`wink-scheduler.ts`), ten sam co dla favicony — tu tylko przełączamy
+ * `data-wink`, a same kolory robi CSS (`ln-wink`).
+ */
 function useWink(enabled: boolean): boolean {
   const [isWinking, setIsWinking] = useState(false);
 
   useEffect(() => {
-    if (!enabled) return;
-    // Bez mrugania przy ograniczonym ruchu — CSS i tak wyłącza animację,
-    // ale nie ma sensu też przełączać stanu.
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    if (!enabled || prefersReducedMotion()) return;
 
-    let timer: ReturnType<typeof setTimeout>;
-    const scheduleWink = () => {
-      const delay = WINK_MIN_DELAY_MS + Math.random() * (WINK_MAX_DELAY_MS - WINK_MIN_DELAY_MS);
-      timer = setTimeout(() => {
-        setIsWinking(true);
-        timer = setTimeout(() => {
-          setIsWinking(false);
-          scheduleWink();
-        }, WINK_DURATION_MS);
-      }, delay);
-    };
-    scheduleWink();
+    const unsubscribe = winkScheduler.subscribe((event) => {
+      if (event.type === 'wink-start') setIsWinking(true);
+      else if (event.type === 'wink-end') setIsWinking(false);
+    });
 
     return () => {
-      clearTimeout(timer);
+      unsubscribe();
       // Wyłączenie w trakcie mrugnięcia nie może zostawić `data-wink` — przy
       // ponownym włączeniu atrybut już by był i animacja by nie ruszyła.
       setIsWinking(false);

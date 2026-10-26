@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Logo } from '@/components/brand/Logo';
 import { LINEFLOW_LOGO } from '@/components/brand/lineflow-logo.generated';
+import { faviconDataUri } from '@/lib/brand/favicon';
 
-// Granice losowego odstępu do mrugnięcia i czas mrugnięcia (Logo.tsx).
+// Granice losowego odstępu do mrugnięcia i czas mrugnięcia (wink-timeline.ts).
 const MIN_DELAY_MS = 60_000;
 const MAX_DELAY_MS = 180_000;
 const WINK_DURATION_MS = 1_600;
@@ -81,6 +82,65 @@ describe('Logo', () => {
     expect(logo).not.toHaveAttribute('data-wink');
     act(() => vi.advanceTimersByTime(MIN_DELAY_MS));
     expect(logo).toHaveAttribute('data-wink');
+  });
+
+  test('dwa logo z wink mrugają w tej samej chwili i dzielą jeden timer', () => {
+    mockReducedMotion(false);
+    // Przy osobnych pętlach każde logo wylosowałoby własny odstęp (min / maks).
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(1);
+    render(
+      <>
+        <Logo wink label="Pierwsze" />
+        <Logo wink label="Drugie" />
+      </>,
+    );
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(MIN_DELAY_MS));
+    expect(screen.getByRole('img', { name: 'Pierwsze' })).toHaveAttribute('data-wink');
+    expect(screen.getByRole('img', { name: 'Drugie' })).toHaveAttribute('data-wink');
+  });
+
+  test('logo z wink mruga razem z faviconą: ten sam start i przywrócenie ikony po końcu', () => {
+    mockReducedMotion(false);
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.setAttribute('href', '/icon.svg');
+    document.head.appendChild(icon);
+    try {
+      render(<Logo wink />);
+      const logo = screen.getByRole('img');
+
+      act(() => vi.advanceTimersByTime(MIN_DELAY_MS));
+      expect(logo).toHaveAttribute('data-wink');
+      expect(icon.getAttribute('href')).toBe('/icon.svg');
+
+      // Pierwsza czerwona klatka keyframes (15%) — favicona czerwienieje razem z logo.
+      act(() => vi.advanceTimersByTime(WINK_DURATION_MS * 0.15));
+      expect(icon.getAttribute('href')).toBe(faviconDataUri('red'));
+
+      act(() => vi.advanceTimersByTime(WINK_DURATION_MS * 0.85));
+      expect(logo).not.toHaveAttribute('data-wink');
+      expect(icon.getAttribute('href')).toBe('/icon.svg');
+    } finally {
+      icon.remove();
+    }
+  });
+
+  test('logo bez wink nie rusza favicony', () => {
+    mockReducedMotion(false);
+    const icon = document.createElement('link');
+    icon.rel = 'icon';
+    icon.setAttribute('href', '/icon.svg');
+    document.head.appendChild(icon);
+    try {
+      render(<Logo />);
+      act(() => vi.advanceTimersByTime(MAX_DELAY_MS * 3));
+      expect(icon.getAttribute('href')).toBe('/icon.svg');
+    } finally {
+      icon.remove();
+    }
   });
 
   test('odmontowanie czyści zaplanowany timer', () => {
